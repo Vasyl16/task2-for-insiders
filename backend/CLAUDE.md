@@ -127,6 +127,36 @@ Follow these conventions as business logic is added incrementally.
   Express/Nest-specific objects. Controllers never touch a repository
   directly.
 
+## Authentication & Authorization
+
+- **Every route requires a valid access token by default.** `JwtAuthGuard`
+  is registered globally (`APP_GUARD` in `app.module.ts`). Mark a route (or
+  whole controller) `@Public()` (`common/decorators/public.decorator.ts`)
+  to exempt it — used today by `/health` and the four `/auth/*` endpoints.
+  New public endpoints must opt out explicitly; nothing is public by
+  omission.
+- **Role checks are opt-in, per route.** `RolesGuard` is not global — add
+  `@UseGuards(RolesGuard)` + `@Roles(Role.ADMIN, ...)` on the specific
+  routes that need it. `Role` is Prisma's generated enum (`@prisma/client`);
+  don't redeclare it in `common/enums`.
+- **`@CurrentUser()`** (`common/decorators/current-user.decorator.ts`)
+  injects the `{ userId, email, role }` payload `JwtStrategy` attached to
+  `request.user`. Use it instead of reading `@Req()` directly.
+- **Access tokens** are short-lived JWTs returned in the response body and
+  sent as `Authorization: Bearer <token>` — never persisted server-side.
+- **Refresh tokens** are longer-lived JWTs delivered as an httpOnly,
+  `path`-scoped (`/api/auth`) cookie — never exposed to response bodies or
+  readable by frontend JS. Each one is hashed (SHA-256, not bcrypt — the
+  token is already high-entropy) and stored in `RefreshToken` for
+  revocation; `AuthService.refresh()` rotates on every use (the presented
+  token is revoked, a new one issued). Always include a random `jti` claim
+  when signing a refresh token — without it, two tokens issued for the same
+  user within the same second are byte-identical and collide on the
+  `tokenHash` unique index.
+- **Passwords** are hashed with `bcryptjs` (pure JS — avoids native
+  `bcrypt`'s node-gyp build step on the Alpine Docker image), cost factor
+  in `modules/auth/auth.constants.ts`. Never log or return `passwordHash`.
+
 ## Naming Conventions
 
 - Files: kebab-case, suffixed by role (`.module.ts`, `.controller.ts`,

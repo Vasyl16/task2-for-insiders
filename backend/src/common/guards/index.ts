@@ -1,2 +1,2 @@
-// Barrel export for guards (e.g. jwt-auth.guard.ts, roles.guard.ts).
-export {};
+export * from './jwt-auth.guard';
+export * from './roles.guard';

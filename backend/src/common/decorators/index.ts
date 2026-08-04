@@ -1,3 +1,3 @@
-// Barrel export for custom parameter/method/class decorators.
-// e.g. export * from './current-user.decorator';
-export {};
+export * from './public.decorator';
+export * from './roles.decorator';
+export * from './current-user.decorator';
