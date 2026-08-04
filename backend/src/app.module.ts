@@ -23,6 +23,7 @@ import { AnalyticsModule } from './modules/analytics';
       isGlobal: true,
       load: [configuration],
       validationSchema,
+      validationOptions: { abortEarly: false },
     }),
     ThrottlerModule.forRootAsync({
       useFactory: (configService: ConfigService) => [
