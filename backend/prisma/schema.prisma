@@ -1,0 +1,12 @@
+// Prisma schema — bootstrap only.
+// Data models will be added incrementally as features are implemented.
+// Do not add models here as part of the architecture bootstrap.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
