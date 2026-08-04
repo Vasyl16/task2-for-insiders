@@ -1,9 +1,12 @@
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { Logger, RequestMethod, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
+import express from 'express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 
@@ -24,6 +27,12 @@ async function bootstrap(): Promise<void> {
     origin: corsOrigin,
     credentials: true,
   });
+
+  // Locally-stored product image uploads (see modules/products). Not routed
+  // through Nest controllers, so it's unaffected by the /api prefix below.
+  const uploadsDir = join(process.cwd(), 'uploads');
+  mkdirSync(uploadsDir, { recursive: true });
+  app.use('/uploads', express.static(uploadsDir));
 
   // /health is excluded from the API prefix so infra probes (Docker/K8s/load
   // balancers) can hit a stable, unversioned path.

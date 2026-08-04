@@ -1,2 +1,2 @@
-// Barrel export for shared/reusable DTOs (e.g. pagination-query.dto.ts).
-export {};
+export * from './pagination-query.dto';
+export * from './pagination-meta.dto';
