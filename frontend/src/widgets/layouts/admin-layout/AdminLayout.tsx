@@ -1,9 +1,12 @@
 import { Outlet } from 'react-router-dom';
+import { AdminHeader } from './AdminHeader';
 
-/**
- * Shell layout for the admin dashboard (sidebar/nav will be added once the
- * corresponding widgets are implemented).
- */
+/** Shell layout for the admin dashboard. Layout owns chrome (header/nav); pages own content. */
 export function AdminLayout() {
-  return <Outlet />;
+  return (
+    <>
+      <AdminHeader />
+      <Outlet />
+    </>
+  );
 }
