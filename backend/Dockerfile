@@ -1,13 +1,14 @@
 # --- Base ---
 FROM node:20-alpine AS base
+# Prisma's query engine needs OpenSSL at runtime; Alpine doesn't ship it.
+RUN apk add --no-cache openssl
 WORKDIR /app
 COPY package*.json ./
 COPY prisma ./prisma
 
 # --- Dependencies (dev deps included, for building) ---
-# `npm ci` runs Prisma's postinstall hook, which generates the client.
-# Do not call `prisma generate` explicitly here: the CLI refuses to run
-# while the schema has zero models, which is expected pre-domain-model.
+# `npm ci` runs Prisma's postinstall hook, which generates the client —
+# no separate `prisma generate` step needed.
 FROM base AS dependencies
 RUN npm ci
 
@@ -18,6 +19,7 @@ RUN npm run build
 
 # --- Production ---
 FROM node:20-alpine AS production
+RUN apk add --no-cache openssl
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package*.json ./
