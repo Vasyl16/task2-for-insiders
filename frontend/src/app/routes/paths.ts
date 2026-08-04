@@ -4,6 +4,8 @@
  */
 export const paths = {
   home: '/',
+  login: '/login',
+  register: '/register',
   product: '/products/:productId',
   cart: '/cart',
   checkout: '/checkout',

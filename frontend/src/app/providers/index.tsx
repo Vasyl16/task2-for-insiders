@@ -4,7 +4,8 @@ import { ThemeProvider } from './theme-provider';
 
 /**
  * Composes every app-wide provider. Add new providers here in the order
- * they should wrap the tree.
+ * they should wrap the tree. Session state lives in the React Query cache
+ * (see entities/session) rather than a dedicated context provider.
  */
 export function AppProviders({ children }: PropsWithChildren) {
   return (
