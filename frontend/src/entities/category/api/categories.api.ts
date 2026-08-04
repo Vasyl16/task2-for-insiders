@@ -1,0 +1,7 @@
+import { apiClient } from '@/shared/api';
+import type { Category } from '../model/category.types';
+
+export async function fetchCategories(): Promise<Category[]> {
+  const { data } = await apiClient.get<Category[]>('/categories');
+  return data;
+}

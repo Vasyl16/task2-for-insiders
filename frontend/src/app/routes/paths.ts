@@ -17,3 +17,7 @@ export const paths = {
     orders: '/admin/orders',
   },
 } as const;
+
+export function buildProductPath(productId: string): string {
+  return paths.product.replace(':productId', productId);
+}
