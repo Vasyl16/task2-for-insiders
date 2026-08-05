@@ -1,4 +1,4 @@
-import type { AppEnv, DatabaseEnv, JwtEnv, RedisEnv, ThrottleEnv } from './env';
+import type { AppEnv, DatabaseEnv, EmailEnv, JwtEnv, RedisEnv, ThrottleEnv } from './env';
 
 export interface Configuration {
   app: AppEnv;
@@ -6,6 +6,7 @@ export interface Configuration {
   redis: RedisEnv;
   jwt: JwtEnv;
   throttle: ThrottleEnv;
+  email: EmailEnv;
 }
 
 /**
@@ -36,5 +37,9 @@ export default (): Configuration => ({
   throttle: {
     ttl: parseInt(process.env.THROTTLE_TTL ?? '60', 10),
     limit: parseInt(process.env.THROTTLE_LIMIT ?? '100', 10),
+  },
+  email: {
+    resendApiKey: process.env.RESEND_API_KEY || undefined,
+    fromEmail: process.env.EMAIL_FROM ?? 'onboarding@resend.dev',
   },
 });

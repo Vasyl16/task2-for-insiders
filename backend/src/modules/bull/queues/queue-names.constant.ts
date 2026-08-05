@@ -6,12 +6,14 @@
  *   2. Register it in the owning feature module with
  *      `BullModule.registerQueue({ name: QueueNames.ORDERS })`
  *      (re-exported from `@nestjs/bullmq` via `../bull.module`).
- *   3. Add a processor for it under `modules/bull/processors/`, extending
- *      `BaseProcessor` and decorated with `@Processor(QueueNames.ORDERS)`.
- *
- * No queues are registered yet — this bootstrap only wires the shared
- * connection (see `bull.module.ts`).
+ *   3. Add a processor for it inside that feature module (e.g.
+ *      `modules/orders/processors/`), extending `BaseProcessor` from this
+ *      module and decorated with `@Processor(QueueNames.ORDERS)`. It lives
+ *      in the feature module (not here) so it can depend on that module's
+ *      repositories/services without a circular import back into `bull`.
  */
-export const QueueNames = {} as const;
+export const QueueNames = {
+  ORDERS: 'orders',
+} as const;
 
 export type QueueName = (typeof QueueNames)[keyof typeof QueueNames];

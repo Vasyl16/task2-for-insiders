@@ -31,6 +31,9 @@ export class OrderResponseDto {
   @ApiProperty()
   totalAmount!: number;
 
+  @ApiProperty({ required: false, nullable: true })
+  cancelReason!: string | null;
+
   @ApiProperty({ type: [OrderItemResponseDto] })
   items!: OrderItemResponseDto[];
 

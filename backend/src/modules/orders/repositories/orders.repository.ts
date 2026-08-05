@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { OrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../database';
 
 export type CartForCheckout = Prisma.CartGetPayload<{
@@ -8,11 +8,22 @@ export type CartForCheckout = Prisma.CartGetPayload<{
 
 export type OrderWithItems = Prisma.OrderGetPayload<{ include: { items: true } }>;
 
+export type OrderForProcessing = Prisma.OrderGetPayload<{
+  include: { items: true; user: { select: { email: true } } };
+}>;
+
+export interface PaginatedOrders {
+  items: OrderWithItems[];
+  total: number;
+}
+
 /**
- * All checkout data access is transaction-scoped (methods take the `tx`
- * client from OrdersService.checkout's `$transaction` callback) so stock
- * reservation, order creation, and cart clearing commit or roll back as one
- * atomic unit.
+ * Checkout-time methods (findCartForCheckout, decrementStock, createOrder,
+ * clearCartItems) are transaction-scoped (take the `tx` client from
+ * OrdersService.checkout's `$transaction` callback) so stock reservation,
+ * order creation, and cart clearing commit or roll back as one atomic unit.
+ * Status-update methods run outside that transaction — the admin/worker
+ * lifecycle never touches stock (it's reserved exactly once, at checkout).
  */
 @Injectable()
 export class OrdersRepository {
@@ -57,5 +68,49 @@ export class OrdersRepository {
 
   clearCartItems(tx: Prisma.TransactionClient, cartId: string): Promise<Prisma.BatchPayload> {
     return tx.cartItem.deleteMany({ where: { cartId } });
+  }
+
+  findById(orderId: string): Promise<OrderWithItems | null> {
+    return this.prisma.order.findUnique({ where: { id: orderId }, include: { items: true } });
+  }
+
+  findForProcessing(orderId: string): Promise<OrderForProcessing | null> {
+    return this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true, user: { select: { email: true } } },
+    });
+  }
+
+  async findManyByUserId(
+    userId: string,
+    { page, limit }: { page: number; limit: number },
+  ): Promise<PaginatedOrders> {
+    const where: Prisma.OrderWhereInput = { userId };
+
+    const [items, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: { items: true },
+      }),
+      this.prisma.order.count({ where }),
+    ]);
+
+    return { items, total };
+  }
+
+  /** Plain status update — never touches stock; reservation happens exactly once, at checkout. */
+  updateStatus(
+    orderId: string,
+    status: OrderStatus,
+    cancelReason?: string | null,
+  ): Promise<OrderWithItems> {
+    return this.prisma.order.update({
+      where: { id: orderId },
+      data: { status, ...(cancelReason !== undefined ? { cancelReason } : {}) },
+      include: { items: true },
+    });
   }
 }

@@ -10,6 +10,7 @@ import { DatabaseModule } from './modules/database';
 import { RedisModule } from './modules/redis';
 import { BullModule } from './modules/bull';
 import { HealthModule } from './modules/health';
+import { EmailModule } from './modules/email';
 import { AuthModule } from './modules/auth';
 import { UsersModule } from './modules/users';
 import { ProductsModule } from './modules/products';
@@ -40,6 +41,7 @@ import { AnalyticsModule } from './modules/analytics';
     DatabaseModule,
     RedisModule,
     BullModule,
+    EmailModule,
     HealthModule,
 
     // Feature modules (empty scaffolding — implemented incrementally)
