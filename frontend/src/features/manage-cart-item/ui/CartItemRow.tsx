@@ -1,3 +1,4 @@
+import { Loader2, Minus, Plus, Trash2 } from 'lucide-react';
 import type { CartItem } from '@/entities/cart';
 import { useUpdateCartItem } from '../api/use-update-cart-item';
 import { useRemoveCartItem } from '../api/use-remove-cart-item';
@@ -22,8 +23,10 @@ export function CartItemRow({ item }: CartItemRowProps) {
   };
 
   return (
-    <div className="flex items-center gap-4 border-b border-slate-200 py-4 last:border-b-0">
-      <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-md bg-slate-100">
+    <div
+      className={`flex items-center gap-4 border-b border-slate-100 py-4 transition-opacity last:border-b-0 ${isRemoving ? 'opacity-40' : ''}`}
+    >
+      <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg bg-slate-100 ring-1 ring-slate-200">
         <img
           src={item.product.imageUrl}
           alt={item.product.name}
@@ -39,25 +42,27 @@ export function CartItemRow({ item }: CartItemRowProps) {
         )}
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1 rounded-full border border-slate-200 p-1">
         <button
           type="button"
           onClick={() => changeQuantity(item.quantity - 1)}
           disabled={isUpdating || item.quantity <= 1}
-          className="h-8 w-8 rounded-md border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-7 w-7 items-center justify-center rounded-full text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
           aria-label={`Decrease quantity of ${item.product.name}`}
         >
-          −
+          <Minus className="h-3.5 w-3.5" />
         </button>
-        <span className="w-6 text-center text-sm font-medium text-slate-900">{item.quantity}</span>
+        <span className="w-6 text-center text-sm font-medium tabular-nums text-slate-900">
+          {isUpdating ? <Loader2 className="mx-auto h-3.5 w-3.5 animate-spin" /> : item.quantity}
+        </span>
         <button
           type="button"
           onClick={() => changeQuantity(item.quantity + 1)}
           disabled={isUpdating || atStockLimit}
-          className="h-8 w-8 rounded-md border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-7 w-7 items-center justify-center rounded-full text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
           aria-label={`Increase quantity of ${item.product.name}`}
         >
-          +
+          <Plus className="h-3.5 w-3.5" />
         </button>
       </div>
 
@@ -67,9 +72,10 @@ export function CartItemRow({ item }: CartItemRowProps) {
         type="button"
         onClick={() => removeCartItem.mutate({ itemId: item.id })}
         disabled={isRemoving}
-        className="text-sm font-medium text-slate-500 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+        aria-label={`Remove ${item.product.name} from cart`}
       >
-        Remove
+        {isRemoving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
       </button>
     </div>
   );
