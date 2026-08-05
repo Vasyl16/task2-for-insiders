@@ -1,13 +1,5 @@
 import { useState } from 'react';
-import {
-  AlertCircle,
-  CheckCircle2,
-  CreditCard,
-  Loader2,
-  Package,
-  ShoppingBag,
-  XCircle,
-} from 'lucide-react';
+import { AlertCircle, CheckCircle2, CreditCard, Loader2, Mail, Package, ShoppingBag, XCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { paths } from '@/app/routes';
 import { useCart } from '@/entities/cart';
@@ -29,7 +21,7 @@ export function CheckoutPage() {
             <CheckCircle2 className="h-8 w-8 text-green-600" />
           </span>
           <h1 className="text-2xl font-semibold text-slate-900">Order confirmed</h1>
-          <p className="mt-1 text-sm text-slate-500">Order #{completedOrder.id}</p>
+          <p className="mt-1 text-sm text-slate-500">Order #{completedOrder.id.slice(0, 8)}</p>
         </div>
 
         <div className="rounded-lg border border-slate-200 bg-white px-4 shadow-sm">
@@ -55,11 +47,16 @@ export function CheckoutPage() {
         <div className="mt-6 flex items-center justify-between rounded-lg border border-green-200 bg-green-50 px-4 py-4">
           <span className="inline-flex items-center gap-1.5 text-sm font-medium text-green-700">
             <CheckCircle2 className="h-4 w-4" />
-            Status: {completedOrder.status}
+            Payment successful
           </span>
           <span className="text-lg font-semibold text-slate-900">
             Total: ${completedOrder.totalAmount.toFixed(2)}
           </span>
+        </div>
+
+        <div className="mt-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500">
+          <Mail className="h-4 w-4 flex-shrink-0" />
+          A receipt email is on its way to your inbox.
         </div>
 
         <Link
@@ -148,21 +145,16 @@ export function CheckoutPage() {
       {checkout.isError && (
         <div className="mt-4 flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4">
           <XCircle className="h-5 w-5 flex-shrink-0 text-red-600" />
-          <div>
-            <p className="text-sm font-medium text-red-700">
-              {getErrorMessage(checkout.error, 'Checkout failed. Please try again.')}
-            </p>
-            <p className="mt-1 text-xs text-red-600">
-              You weren&apos;t charged and your cart is unchanged — try placing the order again.
-            </p>
-          </div>
+          <p className="text-sm font-medium text-red-700">
+            {getErrorMessage(checkout.error, 'Checkout failed. Please try again.')}
+          </p>
         </div>
       )}
 
       <div className="mt-6 flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500">
         <CreditCard className="h-4 w-4 flex-shrink-0" />
-        This is a mock payment gateway for demo purposes — no real card is charged, and charges are
-        randomly declined to simulate real-world failures.
+        This is a mock payment gateway for demo purposes — no real card is charged, and charges
+        are randomly declined to simulate real-world failures.
       </div>
 
       <Button

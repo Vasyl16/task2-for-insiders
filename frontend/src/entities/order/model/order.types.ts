@@ -1,4 +1,4 @@
-export type OrderStatus = 'PENDING' | 'PAID' | 'CANCELLED';
+export type OrderStatus = 'NEW' | 'PROCESSING' | 'SHIPPED' | 'COMPLETED' | 'CANCELLED';
 
 export interface OrderItem {
   id: string;
@@ -13,6 +13,8 @@ export interface Order {
   id: string;
   status: OrderStatus;
   totalAmount: number;
+  cancelReason: string | null;
   items: OrderItem[];
   createdAt: string;
 }
+
