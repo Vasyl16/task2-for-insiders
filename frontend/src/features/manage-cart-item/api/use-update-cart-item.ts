@@ -1,6 +1,8 @@
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api';
+import { useToast } from '@/app/providers';
 import { cartQueryKeys, withUpdatedItemQuantity, type Cart } from '@/entities/cart';
+import { getErrorMessage } from '@/shared/utils';
 
 interface UpdateCartItemVariables {
   itemId: string;
@@ -18,6 +20,7 @@ export function useUpdateCartItem(): UseMutationResult<
   MutationContext
 > {
   const queryClient = useQueryClient();
+  const toast = useToast();
 
   return useMutation({
     mutationFn: async ({ itemId, quantity }: UpdateCartItemVariables) => {
@@ -37,10 +40,11 @@ export function useUpdateCartItem(): UseMutationResult<
 
       return { previousCart };
     },
-    onError: (_error, _variables, context) => {
+    onError: (error, _variables, context) => {
       if (context?.previousCart) {
         queryClient.setQueryData(cartQueryKeys.detail(), context.previousCart);
       }
+      toast.error(getErrorMessage(error, "Couldn't update quantity. Please try again."));
     },
     onSuccess: (data) => {
       queryClient.setQueryData(cartQueryKeys.detail(), data);

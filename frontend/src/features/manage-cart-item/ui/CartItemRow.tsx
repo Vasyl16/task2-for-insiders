@@ -1,5 +1,6 @@
 import { Loader2, Minus, Plus, Trash2 } from 'lucide-react';
 import type { CartItem } from '@/entities/cart';
+import { getErrorMessage } from '@/shared/utils';
 import { useUpdateCartItem } from '../api/use-update-cart-item';
 import { useRemoveCartItem } from '../api/use-remove-cart-item';
 
@@ -38,7 +39,9 @@ export function CartItemRow({ item }: CartItemRowProps) {
         <h3 className="truncate text-sm font-semibold text-slate-900">{item.product.name}</h3>
         <p className="mt-1 text-sm text-slate-500">${item.product.price.toFixed(2)} each</p>
         {updateCartItem.isError && (
-          <p className="mt-1 text-xs text-red-600">Couldn&apos;t update quantity. Try again.</p>
+          <p className="mt-1 text-xs text-red-600">
+            {getErrorMessage(updateCartItem.error, "Couldn't update quantity. Try again.")}
+          </p>
         )}
       </div>
 
@@ -53,7 +56,7 @@ export function CartItemRow({ item }: CartItemRowProps) {
           <Minus className="h-3.5 w-3.5" />
         </button>
         <span className="w-6 text-center text-sm font-medium tabular-nums text-slate-900">
-          {isUpdating ? <Loader2 className="mx-auto h-3.5 w-3.5 animate-spin" /> : item.quantity}
+          {item.quantity}
         </span>
         <button
           type="button"

@@ -4,3 +4,6 @@ export * from './Label';
 export * from './FormError';
 export * from './Select';
 export * from './Pagination';
+export * from './Toast';
+export * from './Textarea';
+export * from './Modal';

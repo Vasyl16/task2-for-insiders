@@ -2,7 +2,7 @@ import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { ProductsQueryParams, ProductSortField, SortOrder } from '@/entities/product';
 
-const DEFAULT_LIMIT = 12;
+const DEFAULT_LIMIT = 8;
 const SORTABLE_FIELDS: ProductSortField[] = ['createdAt', 'price', 'name'];
 
 export interface CatalogFilters {

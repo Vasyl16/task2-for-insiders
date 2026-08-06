@@ -9,6 +9,7 @@ export const paths = {
   product: '/products/:productId',
   cart: '/cart',
   checkout: '/checkout',
+  orders: '/orders',
   profile: '/profile',
   admin: {
     dashboard: '/admin',

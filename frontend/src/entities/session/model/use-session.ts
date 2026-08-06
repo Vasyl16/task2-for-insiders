@@ -10,6 +10,7 @@ interface UseSessionResult {
   isAuthenticated: boolean;
   isLoading: boolean;
   setSession: (user: User, accessToken: string) => void;
+  updateUser: (patch: Partial<User>) => void;
   clearSession: () => void;
 }
 
@@ -59,11 +60,22 @@ export function useSession(): UseSessionResult {
     [queryClient],
   );
 
+  /** Patches the cached user (e.g. after a profile edit) without reissuing tokens. */
+  const updateUser = useCallback(
+    (patch: Partial<User>) => {
+      queryClient.setQueryData<AuthResponse>(sessionQueryKeys.bootstrap(), (old) =>
+        old ? { ...old, user: { ...old.user, ...patch } } : old,
+      );
+    },
+    [queryClient],
+  );
+
   return {
     user: data?.user ?? null,
     isAuthenticated: data?.user != null,
     isLoading,
     setSession,
+    updateUser,
     clearSession,
   };
 }

@@ -1,5 +1,6 @@
 import { AlertCircle, ShoppingCart } from 'lucide-react';
 import { Button } from '@/shared/ui';
+import { getErrorMessage } from '@/shared/utils';
 import { useAddToCart } from '../api/use-add-to-cart';
 
 interface AddToCartButtonProps {
@@ -9,7 +10,7 @@ interface AddToCartButtonProps {
 }
 
 export function AddToCartButton({ productId, disabled = false, className }: AddToCartButtonProps) {
-  const { mutate, isPending, isError } = useAddToCart();
+  const { mutate, isPending, isError, error } = useAddToCart();
 
   return (
     <div className={className}>
@@ -30,7 +31,7 @@ export function AddToCartButton({ productId, disabled = false, className }: AddT
       {isError && (
         <p className="mt-1 flex items-center gap-1 text-xs text-red-600">
           <AlertCircle className="h-3.5 w-3.5" />
-          Couldn&apos;t add to cart. Try again.
+          {getErrorMessage(error, "Couldn't add to cart. Try again.")}
         </p>
       )}
     </div>

@@ -1,4 +1,4 @@
-import { LogOut, Package, ShieldCheck, ShoppingCart, Store, User } from 'lucide-react';
+import { LogOut, Package, Receipt, ShieldCheck, ShoppingCart, Store, User } from 'lucide-react';
 import { Link, NavLink } from 'react-router-dom';
 import { paths } from '@/app/routes';
 import { useCart } from '@/entities/cart';
@@ -41,6 +41,10 @@ export function Header() {
               )}
             </span>
             Cart
+          </NavLink>
+          <NavLink to={paths.orders} className={navLinkClassName}>
+            <Receipt className="h-4 w-4" />
+            Orders
           </NavLink>
           <NavLink to={paths.profile} className={navLinkClassName}>
             <User className="h-4 w-4" />
