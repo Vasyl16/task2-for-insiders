@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { QueueNames } from '../bull';
 import { ProductsModule } from '../products';
+import { AnalyticsModule } from '../analytics';
 import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
 import { MockPaymentGatewayService } from './mock-payment-gateway.service';
@@ -11,6 +12,7 @@ import { OrderProcessingProcessor } from './processors';
 @Module({
   imports: [
     ProductsModule,
+    AnalyticsModule,
     BullModule.registerQueue({
       name: QueueNames.ORDERS,
       defaultJobOptions: {

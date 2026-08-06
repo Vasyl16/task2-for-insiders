@@ -12,6 +12,7 @@ import {
 } from '../../common/exceptions';
 import { roundToCents } from '../../common/utils';
 import { ProductsService } from '../products';
+import { AnalyticsService } from '../analytics';
 import { MockPaymentGatewayService } from './mock-payment-gateway.service';
 import {
   OrdersRepository,
@@ -36,6 +37,7 @@ export class OrdersService {
     private readonly ordersRepository: OrdersRepository,
     private readonly paymentGateway: MockPaymentGatewayService,
     private readonly productsService: ProductsService,
+    private readonly analyticsService: AnalyticsService,
     @InjectQueue(QueueNames.ORDERS) private readonly ordersQueue: Queue<ProcessOrderJobData>,
   ) {}
 
@@ -97,7 +99,11 @@ export class OrdersService {
     // Stock just changed for these products but bypassed ProductsService
     // (checkout decrements it directly, transaction-scoped) — bust their
     // cached reads so stock numbers don't go stale.
-    await this.productsService.invalidateProductsCache(order.items.map((item) => item.productId));
+    await Promise.all([
+      this.productsService.invalidateProductsCache(order.items.map((item) => item.productId)),
+      // A new order changes revenue/order-count/top-products/sales-per-day.
+      this.analyticsService.invalidateCache(),
+    ]);
 
     // Order processing (NEW -> PROCESSING) happens asynchronously in the
     // orders worker so checkout responds as soon as the order is committed.
@@ -179,6 +185,11 @@ export class OrdersService {
     );
 
     this.logStatusChange(orderId, dto.status);
+
+    // A status change into/out of CANCELLED changes which orders count
+    // toward revenue; other transitions don't affect analytics numbers,
+    // but invalidating unconditionally is simpler and cheap (fail-open).
+    await this.analyticsService.invalidateCache();
 
     return this.toResponse(updated);
   }

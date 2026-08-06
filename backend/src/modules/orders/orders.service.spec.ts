@@ -100,6 +100,7 @@ describe('OrdersService', () => {
   };
   let paymentGateway: jest.Mocked<Pick<MockPaymentGatewayService, 'charge'>>;
   let productsService: { invalidateProductsCache: jest.Mock };
+  let analyticsService: { invalidateCache: jest.Mock };
   let ordersQueue: { add: jest.Mock };
   let ordersService: OrdersService;
 
@@ -118,12 +119,14 @@ describe('OrdersService', () => {
     };
     paymentGateway = { charge: jest.fn() };
     productsService = { invalidateProductsCache: jest.fn().mockResolvedValue(undefined) };
+    analyticsService = { invalidateCache: jest.fn().mockResolvedValue(undefined) };
     ordersQueue = { add: jest.fn().mockResolvedValue(undefined) };
 
     ordersService = new OrdersService(
       repository as unknown as OrdersRepository,
       paymentGateway as unknown as MockPaymentGatewayService,
       productsService as never,
+      analyticsService as never,
       ordersQueue as never,
     );
   });
@@ -222,6 +225,7 @@ describe('OrdersService', () => {
       expect(repository.clearCartItems).toHaveBeenCalledWith(expect.anything(), 'cart-1');
       expect(ordersQueue.add).toHaveBeenCalledWith(PROCESS_ORDER_JOB, { orderId: 'order-1' });
       expect(productsService.invalidateProductsCache).toHaveBeenCalledWith(['prod-1', 'prod-2']);
+      expect(analyticsService.invalidateCache).toHaveBeenCalled();
       expect(result).toEqual({
         id: 'order-1',
         status: OrderStatus.NEW,
@@ -399,6 +403,7 @@ describe('OrdersService', () => {
         to === OrderStatus.CANCELLED ? null : undefined,
       );
       expect(result.status).toBe(to);
+      expect(analyticsService.invalidateCache).toHaveBeenCalled();
     });
 
     it.each([
