@@ -76,12 +76,14 @@ notifications) run through a Redis-backed queue.
 ### Local development (apps run natively, infra in Docker)
 
 ```bash
-# 1. Start Postgres + Redis
+# 1. Start Postgres + Redis (Postgres is exposed on localhost:5433 by default)
 docker compose up -d postgres redis
 
 # 2. Backend
 cd backend
 cp .env.example .env
+# When using the Docker Postgres above, set in .env:
+# DATABASE_URL=postgresql://marketplace:marketplace@localhost:5433/marketplace?schema=public
 npm install
 npm run prisma:generate
 npm run start:dev          # http://localhost:3000/api — Swagger at /api/docs
@@ -98,6 +100,12 @@ npm run dev                 # http://localhost:5173
 ```bash
 docker compose up --build
 ```
+
+Backend: http://localhost:3000/api — Frontend: http://localhost:5173
+
+Compose ships with sensible defaults and does not require `backend/.env`.
+Postgres is published on port **5433** by default to avoid conflicts with a
+local PostgreSQL install on 5432. Override ports via `.env` (see `.env.example`).
 
 ## Future Implementation Plan
 
