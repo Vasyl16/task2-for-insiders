@@ -7,3 +7,4 @@ export * from './Pagination';
 export * from './Toast';
 export * from './Textarea';
 export * from './Modal';
+export * from './StatCard';

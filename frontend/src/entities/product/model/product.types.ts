@@ -39,6 +39,8 @@ export interface ProductsQueryParams {
   limit?: number;
   categoryId?: string;
   search?: string;
+  minPrice?: number;
+  maxPrice?: number;
   sortBy?: ProductSortField;
   sortOrder?: SortOrder;
 }

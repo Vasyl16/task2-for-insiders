@@ -2,20 +2,32 @@ import { Link } from 'react-router-dom';
 import { buildProductPath } from '@/app/routes';
 import { ProductCard, useProducts } from '@/entities/product';
 import { AddToCartButton } from '@/features/add-to-cart';
-import { CategoryFilter, SearchInput, SortSelect, useCatalogFilters } from '@/features/catalog-search';
+import {
+  CategoryFilter,
+  PriceRangeInput,
+  SearchInput,
+  SortSelect,
+  useCatalogFilters,
+} from '@/features/catalog-search';
 import { Pagination } from '@/shared/ui';
 
 export function HomePage() {
-  const { filters, queryParams, setSearch, setCategoryId, setSort, setPage } = useCatalogFilters();
+  const { filters, queryParams, setSearch, setCategoryId, setPriceRange, setSort, setPage } =
+    useCatalogFilters();
   const { data, isLoading, isError, isPlaceholderData } = useProducts(queryParams);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
       <h1 className="mb-6 text-2xl font-semibold text-slate-900">Products</h1>
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-3">
+      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <SearchInput value={filters.search} onChange={setSearch} />
         <CategoryFilter value={filters.categoryId} onChange={setCategoryId} />
+        <PriceRangeInput
+          minPrice={filters.minPrice}
+          maxPrice={filters.maxPrice}
+          onChange={setPriceRange}
+        />
         <SortSelect sortBy={filters.sortBy} sortOrder={filters.sortOrder} onChange={setSort} />
       </div>
 
