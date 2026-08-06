@@ -1,6 +1,7 @@
 import { Controller, HttpCode, HttpStatus, Post, Req, Res, Body } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { CookieOptions, Request, Response } from 'express';
 import { Public } from '../../common/decorators';
 import { AuthService, type AuthTokens } from './auth.service';
@@ -18,6 +19,7 @@ export class AuthController {
   ) {}
 
   @Public()
+  @Throttle({ register: { ttl: 60, limit: 5 } })
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create an account and start a session' })
@@ -32,6 +34,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ login: { ttl: 60, limit: 5 } })
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Log in with email and password' })

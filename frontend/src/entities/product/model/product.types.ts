@@ -16,6 +16,8 @@ export interface Product {
   price: number;
   imageUrl: string;
   stock: number;
+  isActive: boolean;
+  deletedAt: string | null;
   categoryId: string;
   category: ProductCategory;
   createdAt: string;
@@ -34,6 +36,8 @@ export interface ProductListResponse {
   meta: PaginationMeta;
 }
 
+export type ProductStatusFilter = 'active' | 'archived' | 'all';
+
 export interface ProductsQueryParams {
   page?: number;
   limit?: number;
@@ -41,6 +45,7 @@ export interface ProductsQueryParams {
   search?: string;
   minPrice?: number;
   maxPrice?: number;
+  status?: ProductStatusFilter;
   sortBy?: ProductSortField;
   sortOrder?: SortOrder;
 }

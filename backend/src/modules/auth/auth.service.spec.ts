@@ -1,4 +1,4 @@
-import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, UnauthorizedException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import type { JwtService } from '@nestjs/jwt';
 import { Prisma, Role, type User } from '@prisma/client';
@@ -85,7 +85,11 @@ describe('AuthService', () => {
       (bcrypt.hash as jest.Mock).mockResolvedValue('hashed-password');
       usersService.create.mockResolvedValue(user);
 
-      const result = await authService.register({ email: user.email, password: 'plain-password' });
+      const result = await authService.register({
+        email: user.email,
+        password: 'plain-password',
+        confirmPassword: 'plain-password',
+      });
 
       expect(bcrypt.hash).toHaveBeenCalledWith('plain-password', expect.any(Number));
       expect(usersService.create).toHaveBeenCalledWith({
@@ -100,6 +104,16 @@ describe('AuthService', () => {
       });
     });
 
+    it('rejects registration when the confirmation password does not match', async () => {
+      await expect(
+        authService.register({
+          email: user.email,
+          password: 'plain-password',
+          confirmPassword: 'different-password',
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
     it('translates a duplicate-email constraint into a ConflictException', async () => {
       (bcrypt.hash as jest.Mock).mockResolvedValue('hashed-password');
       usersService.create.mockRejectedValue(
@@ -110,7 +124,11 @@ describe('AuthService', () => {
       );
 
       await expect(
-        authService.register({ email: user.email, password: 'plain-password' }),
+        authService.register({
+          email: user.email,
+          password: 'plain-password',
+          confirmPassword: 'plain-password',
+        }),
       ).rejects.toBeInstanceOf(ConflictException);
     });
   });
