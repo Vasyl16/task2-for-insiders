@@ -12,6 +12,8 @@ export interface FindProductsOptions {
   limit: number;
   categoryId?: string;
   search?: string;
+  minPrice?: number;
+  maxPrice?: number;
   sortBy: ProductSortField;
   sortOrder: SortOrder;
 }
@@ -54,7 +56,7 @@ export class ProductsRepository {
   }
 
   async findMany(options: FindProductsOptions): Promise<PaginatedResult<ProductWithCategory>> {
-    const { page, limit, categoryId, search, sortBy, sortOrder } = options;
+    const { page, limit, categoryId, search, minPrice, maxPrice, sortBy, sortOrder } = options;
 
     const where: Prisma.ProductWhereInput = {
       ...(categoryId && { categoryId }),
@@ -63,6 +65,12 @@ export class ProductsRepository {
           { name: { contains: search, mode: 'insensitive' } },
           { description: { contains: search, mode: 'insensitive' } },
         ],
+      }),
+      ...((minPrice !== undefined || maxPrice !== undefined) && {
+        price: {
+          ...(minPrice !== undefined && { gte: minPrice }),
+          ...(maxPrice !== undefined && { lte: maxPrice }),
+        },
       }),
     };
 

@@ -21,8 +21,8 @@ export const PRODUCTS_CACHE_TTL_SECONDS = 300;
 export const PRODUCTS_LIST_CACHE_PATTERN = 'products:list:*';
 
 export function productListCacheKey(query: ProductsQueryDto): string {
-  const { page, limit, categoryId, search, sortBy, sortOrder } = query;
-  return `products:list:${page}:${limit}:${categoryId ?? ''}:${search ?? ''}:${sortBy}:${sortOrder}`;
+  const { page, limit, categoryId, search, minPrice, maxPrice, sortBy, sortOrder } = query;
+  return `products:list:${page}:${limit}:${categoryId ?? ''}:${search ?? ''}:${minPrice ?? ''}:${maxPrice ?? ''}:${sortBy}:${sortOrder}`;
 }
 
 export function productDetailCacheKey(id: string): string {

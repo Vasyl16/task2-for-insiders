@@ -57,12 +57,14 @@ export class ProductsService {
       return cached;
     }
 
-    const { page, limit, categoryId, search, sortBy, sortOrder } = query;
+    const { page, limit, categoryId, search, minPrice, maxPrice, sortBy, sortOrder } = query;
     const { items, total } = await this.productsRepository.findMany({
       page,
       limit,
       categoryId,
       search,
+      minPrice,
+      maxPrice,
       sortBy,
       sortOrder,
     });
