@@ -3,7 +3,7 @@ import type { Job } from 'bullmq';
 import { OrderStatus } from '@prisma/client';
 import { QueueNames, BaseProcessor } from '../../bull';
 import { EmailService } from '../../email';
-import { PROCESS_ORDER_JOB } from '../orders.constants';
+import { PROCESS_ORDER_JOB, SYSTEM_ACTOR } from '../orders.constants';
 import { OrdersRepository } from '../repositories';
 
 export interface ProcessOrderJobData {
@@ -44,7 +44,11 @@ export class OrderProcessingProcessor extends BaseProcessor<ProcessOrderJobData>
       return;
     }
 
-    await this.ordersRepository.updateStatus(orderId, OrderStatus.PROCESSING);
+    await this.ordersRepository.updateStatusWithHistory(
+      orderId,
+      OrderStatus.PROCESSING,
+      SYSTEM_ACTOR,
+    );
     this.logger.log(`Order ${orderId} entered PROCESSING`);
 
     await this.emailService

@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { OrderStatus } from '@prisma/client';
 
 export class OrderItemResponseDto {
@@ -33,6 +33,12 @@ export class OrderResponseDto {
 
   @ApiProperty({ required: false, nullable: true })
   cancelReason!: string | null;
+
+  @ApiProperty()
+  userId!: string;
+
+  @ApiPropertyOptional({ description: 'Only populated on the admin order list/detail' })
+  customerEmail?: string;
 
   @ApiProperty({ type: [OrderItemResponseDto] })
   items!: OrderItemResponseDto[];

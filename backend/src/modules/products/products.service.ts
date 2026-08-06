@@ -7,18 +7,28 @@ import {
 import { Prisma } from '@prisma/client';
 import { slugify } from '../../common/utils';
 import { PaginationMetaDto } from '../../common/dto';
+import { RedisService } from '../redis';
 import { ProductsRepository, type ProductWithCategory } from './repositories';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductResponseDto } from './dto/product-response.dto';
 import { ProductListResponseDto } from './dto/product-list-response.dto';
 import { ProductsQueryDto } from './dto/products-query.dto';
+import {
+  PRODUCTS_CACHE_TTL_SECONDS,
+  PRODUCTS_LIST_CACHE_PATTERN,
+  productDetailCacheKey,
+  productListCacheKey,
+} from './products.constants';
 
 const MAX_SLUG_ATTEMPTS = 50;
 
 @Injectable()
 export class ProductsService {
-  constructor(private readonly productsRepository: ProductsRepository) {}
+  constructor(
+    private readonly productsRepository: ProductsRepository,
+    private readonly redisService: RedisService,
+  ) {}
 
   async create(dto: CreateProductDto): Promise<ProductResponseDto> {
     const slug = await this.generateUniqueSlug(dto.name);
@@ -33,6 +43,7 @@ export class ProductsService {
         stock: dto.stock,
         category: { connect: { id: dto.categoryId } },
       });
+      await this.invalidateListCache();
       return this.toResponse(product);
     } catch (error) {
       throw this.translateWriteError(error);
@@ -40,6 +51,12 @@ export class ProductsService {
   }
 
   async findAll(query: ProductsQueryDto): Promise<ProductListResponseDto> {
+    const cacheKey = productListCacheKey(query);
+    const cached = await this.redisService.getJson<ProductListResponseDto>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const { page, limit, categoryId, search, sortBy, sortOrder } = query;
     const { items, total } = await this.productsRepository.findMany({
       page,
@@ -50,18 +67,28 @@ export class ProductsService {
       sortOrder,
     });
 
-    return {
+    const response: ProductListResponseDto = {
       items: items.map((item) => this.toResponse(item)),
       meta: new PaginationMetaDto(page, limit, total),
     };
+    await this.redisService.setJson(cacheKey, response, PRODUCTS_CACHE_TTL_SECONDS);
+    return response;
   }
 
   async findById(id: string): Promise<ProductResponseDto> {
+    const cacheKey = productDetailCacheKey(id);
+    const cached = await this.redisService.getJson<ProductResponseDto>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const product = await this.productsRepository.findById(id);
     if (!product) {
       throw new NotFoundException('Product not found');
     }
-    return this.toResponse(product);
+    const response = this.toResponse(product);
+    await this.redisService.setJson(cacheKey, response, PRODUCTS_CACHE_TTL_SECONDS);
+    return response;
   }
 
   async update(id: string, dto: UpdateProductDto): Promise<ProductResponseDto> {
@@ -90,6 +117,10 @@ export class ProductsService {
 
     try {
       const product = await this.productsRepository.update(id, data);
+      await Promise.all([
+        this.invalidateListCache(),
+        this.redisService.del(productDetailCacheKey(id)),
+      ]);
       return this.toResponse(product);
     } catch (error) {
       throw this.translateWriteError(error);
@@ -99,6 +130,27 @@ export class ProductsService {
   async delete(id: string): Promise<void> {
     await this.ensureExists(id);
     await this.productsRepository.delete(id);
+    await Promise.all([
+      this.invalidateListCache(),
+      this.redisService.del(productDetailCacheKey(id)),
+    ]);
+  }
+
+  /** Called by OrdersService after a successful checkout decrements these products' stock. */
+  async invalidateProductsCache(productIds: string[]): Promise<void> {
+    await Promise.all([
+      this.invalidateListCache(),
+      ...productIds.map((id) => this.redisService.del(productDetailCacheKey(id))),
+    ]);
+  }
+
+  /** Called by CategoriesService on writes — a renamed/deleted category is embedded in every product response. */
+  async invalidateAllProductCaches(): Promise<void> {
+    await this.redisService.delByPattern('products:*');
+  }
+
+  private async invalidateListCache(): Promise<void> {
+    await this.redisService.delByPattern(PRODUCTS_LIST_CACHE_PATTERN);
   }
 
   private async ensureExists(id: string): Promise<void> {

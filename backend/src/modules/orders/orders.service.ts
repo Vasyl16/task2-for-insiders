@@ -1,19 +1,31 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, Role } from '@prisma/client';
 import { QueueNames } from '../bull';
 import { PaginationMetaDto, type PaginationQueryDto } from '../../common/dto';
+import type { AuthenticatedUser } from '../../common/interfaces';
 import {
   InsufficientStockException,
   InvalidOrderStatusTransitionException,
   PaymentFailedException,
 } from '../../common/exceptions';
 import { roundToCents } from '../../common/utils';
+import { ProductsService } from '../products';
 import { MockPaymentGatewayService } from './mock-payment-gateway.service';
-import { OrdersRepository, type OrderWithItems } from './repositories';
-import { OrderListResponseDto, OrderResponseDto, UpdateOrderStatusDto } from './dto';
-import { ORDER_STATUS_TRANSITIONS, PROCESS_ORDER_JOB } from './orders.constants';
+import {
+  OrdersRepository,
+  type OrderWithItems,
+  type OrderWithItemsAndCustomer,
+} from './repositories';
+import {
+  AdminOrdersQueryDto,
+  OrderListResponseDto,
+  OrderResponseDto,
+  OrderStatusHistoryResponseDto,
+  UpdateOrderStatusDto,
+} from './dto';
+import { ORDER_STATUS_TRANSITIONS, PROCESS_ORDER_JOB, SYSTEM_ACTOR } from './orders.constants';
 import type { ProcessOrderJobData } from './processors';
 
 @Injectable()
@@ -23,6 +35,7 @@ export class OrdersService {
   constructor(
     private readonly ordersRepository: OrdersRepository,
     private readonly paymentGateway: MockPaymentGatewayService,
+    private readonly productsService: ProductsService,
     @InjectQueue(QueueNames.ORDERS) private readonly ordersQueue: Queue<ProcessOrderJobData>,
   ) {}
 
@@ -68,6 +81,10 @@ export class OrdersService {
             unitPrice: Number(item.product.price),
           })),
         },
+        // Part of the same atomic write as order/item creation, unlike
+        // later transitions which get their own history row via
+        // updateStatusWithHistory.
+        statusHistory: { create: { status: OrderStatus.NEW, changedBy: SYSTEM_ACTOR } },
       });
 
       await this.ordersRepository.clearCartItems(tx, cart.id);
@@ -76,6 +93,11 @@ export class OrdersService {
     });
 
     this.logger.log(`Order ${order.id} created`);
+
+    // Stock just changed for these products but bypassed ProductsService
+    // (checkout decrements it directly, transaction-scoped) — bust their
+    // cached reads so stock numbers don't go stale.
+    await this.productsService.invalidateProductsCache(order.items.map((item) => item.productId));
 
     // Order processing (NEW -> PROCESSING) happens asynchronously in the
     // orders worker so checkout responds as soon as the order is committed.
@@ -94,6 +116,17 @@ export class OrdersService {
     };
   }
 
+  /** Admin-only: every order across every customer. */
+  async findAllForAdmin(query: AdminOrdersQueryDto): Promise<OrderListResponseDto> {
+    const { page, limit, status } = query;
+    const { items, total } = await this.ordersRepository.findManyForAdmin({ page, limit, status });
+
+    return {
+      items: items.map((item) => this.toResponse(item)),
+      meta: new PaginationMetaDto(page, limit, total),
+    };
+  }
+
   async getOrderById(userId: string, orderId: string): Promise<OrderResponseDto> {
     const order = await this.ordersRepository.findById(orderId);
     if (!order || order.userId !== userId) {
@@ -102,8 +135,32 @@ export class OrdersService {
     return this.toResponse(order);
   }
 
+  /** The order's own customer, or any admin, may view its status history. */
+  async getOrderHistory(
+    user: AuthenticatedUser,
+    orderId: string,
+  ): Promise<OrderStatusHistoryResponseDto[]> {
+    const order = await this.ordersRepository.findById(orderId);
+    if (!order || (order.userId !== user.userId && user.role !== Role.ADMIN)) {
+      throw new NotFoundException('Order not found');
+    }
+
+    const history = await this.ordersRepository.findHistoryByOrderId(orderId);
+    return history.map((entry) => ({
+      id: entry.id,
+      status: entry.status,
+      reason: entry.reason,
+      changedBy: entry.changedBy,
+      createdAt: entry.createdAt,
+    }));
+  }
+
   /** Admin-only: moves an order through its fulfillment lifecycle. Never touches stock. */
-  async updateStatus(orderId: string, dto: UpdateOrderStatusDto): Promise<OrderResponseDto> {
+  async updateStatus(
+    orderId: string,
+    dto: UpdateOrderStatusDto,
+    adminEmail: string,
+  ): Promise<OrderResponseDto> {
     const order = await this.ordersRepository.findById(orderId);
     if (!order) {
       throw new NotFoundException('Order not found');
@@ -114,9 +171,10 @@ export class OrdersService {
       throw new InvalidOrderStatusTransitionException(order.status, dto.status);
     }
 
-    const updated = await this.ordersRepository.updateStatus(
+    const updated = await this.ordersRepository.updateStatusWithHistory(
       orderId,
       dto.status,
+      adminEmail,
       dto.status === OrderStatus.CANCELLED ? (dto.reason ?? null) : undefined,
     );
 
@@ -136,7 +194,7 @@ export class OrdersService {
     this.logger.log(messages[status]);
   }
 
-  private toResponse(order: OrderWithItems): OrderResponseDto {
+  private toResponse(order: OrderWithItems | OrderWithItemsAndCustomer): OrderResponseDto {
     const items = order.items.map((item) => ({
       id: item.id,
       productId: item.productId,
@@ -151,6 +209,8 @@ export class OrdersService {
       status: order.status,
       totalAmount: Number(order.totalAmount),
       cancelReason: order.cancelReason,
+      userId: order.userId,
+      customerEmail: 'user' in order ? order.user.email : undefined,
       items,
       createdAt: order.createdAt,
     };

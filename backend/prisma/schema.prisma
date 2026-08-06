@@ -129,12 +129,27 @@ model Order {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
 
-  items OrderItem[]
+  items         OrderItem[]
+  statusHistory OrderStatusHistory[]
 
   @@index([userId])
   @@index([status])
   @@index([createdAt])
   @@map("orders")
+}
+
+model OrderStatusHistory {
+  id        String      @id @default(uuid())
+  status    OrderStatus
+  reason    String?
+  changedBy String? // "system" for the worker, or the admin's email for manual changes
+  createdAt DateTime    @default(now())
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_status_history")
 }
 
 model OrderItem {

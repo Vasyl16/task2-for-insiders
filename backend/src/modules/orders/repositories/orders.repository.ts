@@ -17,6 +17,17 @@ export interface PaginatedOrders {
   total: number;
 }
 
+export type OrderWithItemsAndCustomer = Prisma.OrderGetPayload<{
+  include: { items: true; user: { select: { email: true } } };
+}>;
+
+export interface PaginatedAdminOrders {
+  items: OrderWithItemsAndCustomer[];
+  total: number;
+}
+
+export type OrderStatusHistoryEntry = Prisma.OrderStatusHistoryGetPayload<object>;
+
 /**
  * Checkout-time methods (findCartForCheckout, decrementStock, createOrder,
  * clearCartItems) are transaction-scoped (take the `tx` client from
@@ -85,8 +96,38 @@ export class OrdersRepository {
     userId: string,
     { page, limit }: { page: number; limit: number },
   ): Promise<PaginatedOrders> {
-    const where: Prisma.OrderWhereInput = { userId };
+    return this.findManyPaginated({ userId }, { page, limit });
+  }
 
+  async findManyForAdmin({
+    page,
+    limit,
+    status,
+  }: {
+    page: number;
+    limit: number;
+    status?: OrderStatus;
+  }): Promise<PaginatedAdminOrders> {
+    const where: Prisma.OrderWhereInput = status ? { status } : {};
+
+    const [items, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: { items: true, user: { select: { email: true } } },
+      }),
+      this.prisma.order.count({ where }),
+    ]);
+
+    return { items, total };
+  }
+
+  private async findManyPaginated(
+    where: Prisma.OrderWhereInput,
+    { page, limit }: { page: number; limit: number },
+  ): Promise<PaginatedOrders> {
     const [items, total] = await Promise.all([
       this.prisma.order.findMany({
         where,
@@ -101,16 +142,34 @@ export class OrdersRepository {
     return { items, total };
   }
 
-  /** Plain status update — never touches stock; reservation happens exactly once, at checkout. */
-  updateStatus(
+  /**
+   * Status update + its history entry, committed atomically. Never touches
+   * stock — reservation happens exactly once, at checkout.
+   */
+  async updateStatusWithHistory(
     orderId: string,
     status: OrderStatus,
-    cancelReason?: string | null,
+    changedBy: string,
+    reason?: string | null,
   ): Promise<OrderWithItems> {
-    return this.prisma.order.update({
-      where: { id: orderId },
-      data: { status, ...(cancelReason !== undefined ? { cancelReason } : {}) },
-      include: { items: true },
+    const [order] = await this.prisma.$transaction([
+      this.prisma.order.update({
+        where: { id: orderId },
+        data: { status, ...(reason !== undefined ? { cancelReason: reason } : {}) },
+        include: { items: true },
+      }),
+      this.prisma.orderStatusHistory.create({
+        data: { orderId, status, changedBy, reason: reason ?? null },
+      }),
+    ]);
+
+    return order;
+  }
+
+  findHistoryByOrderId(orderId: string): Promise<OrderStatusHistoryEntry[]> {
+    return this.prisma.orderStatusHistory.findMany({
+      where: { orderId },
+      orderBy: { createdAt: 'asc' },
     });
   }
 }

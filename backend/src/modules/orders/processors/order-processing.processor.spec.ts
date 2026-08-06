@@ -47,7 +47,7 @@ describe('OrderProcessingProcessor', () => {
 
   let repository: {
     findForProcessing: jest.Mock;
-    updateStatus: jest.Mock;
+    updateStatusWithHistory: jest.Mock;
   };
   let emailService: jest.Mocked<Pick<EmailService, 'sendPaymentReceipt'>>;
   let processor: OrderProcessingProcessor;
@@ -55,7 +55,7 @@ describe('OrderProcessingProcessor', () => {
   beforeEach(() => {
     repository = {
       findForProcessing: jest.fn(),
-      updateStatus: jest.fn().mockResolvedValue(undefined),
+      updateStatusWithHistory: jest.fn().mockResolvedValue(undefined),
     };
     emailService = { sendPaymentReceipt: jest.fn().mockResolvedValue(undefined) };
 
@@ -70,7 +70,7 @@ describe('OrderProcessingProcessor', () => {
 
     await processor.process(buildJob());
 
-    expect(repository.updateStatus).not.toHaveBeenCalled();
+    expect(repository.updateStatusWithHistory).not.toHaveBeenCalled();
     expect(emailService.sendPaymentReceipt).not.toHaveBeenCalled();
   });
 
@@ -84,7 +84,7 @@ describe('OrderProcessingProcessor', () => {
 
     await processor.process(buildJob());
 
-    expect(repository.updateStatus).not.toHaveBeenCalled();
+    expect(repository.updateStatusWithHistory).not.toHaveBeenCalled();
     expect(emailService.sendPaymentReceipt).not.toHaveBeenCalled();
   });
 
@@ -93,7 +93,11 @@ describe('OrderProcessingProcessor', () => {
 
     await processor.process(buildJob());
 
-    expect(repository.updateStatus).toHaveBeenCalledWith('order-1', OrderStatus.PROCESSING);
+    expect(repository.updateStatusWithHistory).toHaveBeenCalledWith(
+      'order-1',
+      OrderStatus.PROCESSING,
+      'system',
+    );
     expect(emailService.sendPaymentReceipt).toHaveBeenCalledWith(
       'buyer@example.com',
       expect.objectContaining({
@@ -112,6 +116,10 @@ describe('OrderProcessingProcessor', () => {
     emailService.sendPaymentReceipt.mockRejectedValue(new Error('Resend down'));
 
     await expect(processor.process(buildJob())).resolves.toBeUndefined();
-    expect(repository.updateStatus).toHaveBeenCalledWith('order-1', OrderStatus.PROCESSING);
+    expect(repository.updateStatusWithHistory).toHaveBeenCalledWith(
+      'order-1',
+      OrderStatus.PROCESSING,
+      'system',
+    );
   });
 });

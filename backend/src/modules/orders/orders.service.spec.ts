@@ -84,6 +84,8 @@ describe('OrdersService', () => {
     } as unknown as OrderWithItems;
   }
 
+  const adminEmail = 'admin@example.com';
+
   let repository: {
     runInTransaction: jest.Mock;
     findCartForCheckout: jest.Mock;
@@ -92,9 +94,12 @@ describe('OrdersService', () => {
     clearCartItems: jest.Mock;
     findById: jest.Mock;
     findManyByUserId: jest.Mock;
-    updateStatus: jest.Mock;
+    findManyForAdmin: jest.Mock;
+    findHistoryByOrderId: jest.Mock;
+    updateStatusWithHistory: jest.Mock;
   };
   let paymentGateway: jest.Mocked<Pick<MockPaymentGatewayService, 'charge'>>;
+  let productsService: { invalidateProductsCache: jest.Mock };
   let ordersQueue: { add: jest.Mock };
   let ordersService: OrdersService;
 
@@ -107,14 +112,18 @@ describe('OrdersService', () => {
       clearCartItems: jest.fn(),
       findById: jest.fn(),
       findManyByUserId: jest.fn(),
-      updateStatus: jest.fn(),
+      findManyForAdmin: jest.fn(),
+      findHistoryByOrderId: jest.fn(),
+      updateStatusWithHistory: jest.fn(),
     };
     paymentGateway = { charge: jest.fn() };
+    productsService = { invalidateProductsCache: jest.fn().mockResolvedValue(undefined) };
     ordersQueue = { add: jest.fn().mockResolvedValue(undefined) };
 
     ordersService = new OrdersService(
       repository as unknown as OrdersRepository,
       paymentGateway as unknown as MockPaymentGatewayService,
+      productsService as never,
       ordersQueue as never,
     );
   });
@@ -207,15 +216,19 @@ describe('OrdersService', () => {
               { productId: 'prod-2', productName: 'Gadget', quantity: 1, unitPrice: 25 },
             ],
           },
+          statusHistory: { create: { status: OrderStatus.NEW, changedBy: 'system' } },
         }),
       );
       expect(repository.clearCartItems).toHaveBeenCalledWith(expect.anything(), 'cart-1');
       expect(ordersQueue.add).toHaveBeenCalledWith(PROCESS_ORDER_JOB, { orderId: 'order-1' });
+      expect(productsService.invalidateProductsCache).toHaveBeenCalledWith(['prod-1', 'prod-2']);
       expect(result).toEqual({
         id: 'order-1',
         status: OrderStatus.NEW,
         totalAmount: 45,
         cancelReason: null,
+        userId,
+        customerEmail: undefined,
         createdAt: now,
         items: [
           {
@@ -278,12 +291,92 @@ describe('OrdersService', () => {
     });
   });
 
+  describe('findAllForAdmin', () => {
+    it('paginates and maps orders across all customers, forwarding the status filter', async () => {
+      repository.findManyForAdmin.mockResolvedValue({ items: [buildOrder()], total: 1 });
+
+      const result = await ordersService.findAllForAdmin({
+        page: 1,
+        limit: 20,
+        status: OrderStatus.NEW,
+      });
+
+      expect(repository.findManyForAdmin).toHaveBeenCalledWith({
+        page: 1,
+        limit: 20,
+        status: OrderStatus.NEW,
+      });
+      expect(result.items).toHaveLength(1);
+      expect(result.meta).toEqual({ page: 1, limit: 20, total: 1, totalPages: 1 });
+    });
+  });
+
+  describe('getOrderHistory', () => {
+    const historyEntry = {
+      id: 'hist-1',
+      orderId: 'order-1',
+      status: OrderStatus.NEW,
+      reason: null,
+      changedBy: 'system',
+      createdAt: now,
+    };
+    const expectedHistoryResponse = [
+      { id: 'hist-1', status: OrderStatus.NEW, reason: null, changedBy: 'system', createdAt: now },
+    ];
+
+    it('throws NotFoundException when the order does not exist', async () => {
+      repository.findById.mockResolvedValue(null);
+
+      await expect(
+        ordersService.getOrderHistory(
+          { userId, email: 'x@example.com', role: 'USER' } as never,
+          'order-1',
+        ),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it("throws NotFoundException when a non-admin requests someone else's order history", async () => {
+      repository.findById.mockResolvedValue({ ...buildOrder(), userId: 'someone-else' });
+
+      await expect(
+        ordersService.getOrderHistory(
+          { userId, email: 'x@example.com', role: 'USER' } as never,
+          'order-1',
+        ),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it("returns the order's history for its owner", async () => {
+      repository.findById.mockResolvedValue(buildOrder());
+      repository.findHistoryByOrderId.mockResolvedValue([historyEntry]);
+
+      const result = await ordersService.getOrderHistory(
+        { userId, email: 'x@example.com', role: 'USER' } as never,
+        'order-1',
+      );
+
+      expect(result).toEqual(expectedHistoryResponse);
+    });
+
+    it("returns any order's history for an admin, regardless of ownership", async () => {
+      repository.findById.mockResolvedValue({ ...buildOrder(), userId: 'someone-else' });
+      repository.findHistoryByOrderId.mockResolvedValue([historyEntry]);
+
+      const result = await ordersService.getOrderHistory(
+        { userId, email: 'admin@example.com', role: 'ADMIN' } as never,
+        'order-1',
+      );
+
+      expect(result).toEqual(expectedHistoryResponse);
+    });
+  });
+
   describe('updateStatus', () => {
     it('throws NotFoundException when the order does not exist', async () => {
       repository.findById.mockResolvedValue(null);
 
       await expect(
-        ordersService.updateStatus('order-1', { status: OrderStatus.PROCESSING }),
+        ordersService.updateStatus('order-1', { status: OrderStatus.PROCESSING }, adminEmail),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
 
@@ -295,13 +388,14 @@ describe('OrdersService', () => {
       [OrderStatus.SHIPPED, OrderStatus.COMPLETED],
     ])('allows %s -> %s', async (from, to) => {
       repository.findById.mockResolvedValue(buildOrder(from));
-      repository.updateStatus.mockResolvedValue(buildOrder(to));
+      repository.updateStatusWithHistory.mockResolvedValue(buildOrder(to));
 
-      const result = await ordersService.updateStatus('order-1', { status: to });
+      const result = await ordersService.updateStatus('order-1', { status: to }, adminEmail);
 
-      expect(repository.updateStatus).toHaveBeenCalledWith(
+      expect(repository.updateStatusWithHistory).toHaveBeenCalledWith(
         'order-1',
         to,
+        adminEmail,
         to === OrderStatus.CANCELLED ? null : undefined,
       );
       expect(result.status).toBe(to);
@@ -317,24 +411,26 @@ describe('OrdersService', () => {
     ])('rejects %s -> %s', async (from, to) => {
       repository.findById.mockResolvedValue(buildOrder(from));
 
-      await expect(ordersService.updateStatus('order-1', { status: to })).rejects.toBeInstanceOf(
-        InvalidOrderStatusTransitionException,
-      );
-      expect(repository.updateStatus).not.toHaveBeenCalled();
+      await expect(
+        ordersService.updateStatus('order-1', { status: to }, adminEmail),
+      ).rejects.toBeInstanceOf(InvalidOrderStatusTransitionException);
+      expect(repository.updateStatusWithHistory).not.toHaveBeenCalled();
     });
 
     it('stores the cancellation reason when cancelling', async () => {
       repository.findById.mockResolvedValue(buildOrder(OrderStatus.NEW));
-      repository.updateStatus.mockResolvedValue(buildOrder(OrderStatus.CANCELLED));
+      repository.updateStatusWithHistory.mockResolvedValue(buildOrder(OrderStatus.CANCELLED));
 
-      await ordersService.updateStatus('order-1', {
-        status: OrderStatus.CANCELLED,
-        reason: 'Customer requested cancellation',
-      });
+      await ordersService.updateStatus(
+        'order-1',
+        { status: OrderStatus.CANCELLED, reason: 'Customer requested cancellation' },
+        adminEmail,
+      );
 
-      expect(repository.updateStatus).toHaveBeenCalledWith(
+      expect(repository.updateStatusWithHistory).toHaveBeenCalledWith(
         'order-1',
         OrderStatus.CANCELLED,
+        adminEmail,
         'Customer requested cancellation',
       );
     });

@@ -7,7 +7,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import express from 'express';
-import helmet from 'helmet';
+import helmet, { crossOriginResourcePolicy } from 'helmet';
 import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
@@ -30,9 +30,16 @@ async function bootstrap(): Promise<void> {
 
   // Locally-stored product image uploads (see modules/products). Not routed
   // through Nest controllers, so it's unaffected by the /api prefix below.
+  // helmet()'s default same-origin CORP would otherwise block the frontend
+  // (a different origin/port in dev, and typically a different origin/CDN
+  // in production) from loading these images in <img> tags.
   const uploadsDir = join(process.cwd(), 'uploads');
   mkdirSync(uploadsDir, { recursive: true });
-  app.use('/uploads', express.static(uploadsDir));
+  app.use(
+    '/uploads',
+    crossOriginResourcePolicy({ policy: 'cross-origin' }),
+    express.static(uploadsDir),
+  );
 
   // /health is excluded from the API prefix so infra probes (Docker/K8s/load
   // balancers) can hit a stable, unversioned path.

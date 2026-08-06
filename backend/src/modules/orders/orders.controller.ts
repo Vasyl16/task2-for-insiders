@@ -16,7 +16,13 @@ import { PaginationQueryDto } from '../../common/dto';
 import { RolesGuard } from '../../common/guards';
 import type { AuthenticatedUser } from '../../common/interfaces';
 import { OrdersService } from './orders.service';
-import { OrderListResponseDto, OrderResponseDto, UpdateOrderStatusDto } from './dto';
+import {
+  AdminOrdersQueryDto,
+  OrderListResponseDto,
+  OrderResponseDto,
+  OrderStatusHistoryResponseDto,
+  UpdateOrderStatusDto,
+} from './dto';
 
 @ApiTags('orders')
 @ApiBearerAuth()
@@ -42,6 +48,17 @@ export class OrdersController {
     return this.ordersService.findMyOrders(user.userId, query);
   }
 
+  @Get('admin')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiOperation({
+    summary: 'List every order across all customers, optionally filtered by status (admin only)',
+  })
+  @ApiResponse({ status: 200, type: OrderListResponseDto })
+  findAllForAdmin(@Query() query: AdminOrdersQueryDto): Promise<OrderListResponseDto> {
+    return this.ordersService.findAllForAdmin(query);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get an order by id (for polling checkout/fulfillment status)' })
   @ApiResponse({ status: 200, type: OrderResponseDto })
@@ -52,6 +69,16 @@ export class OrdersController {
     return this.ordersService.getOrderById(user.userId, id);
   }
 
+  @Get(':id/history')
+  @ApiOperation({ summary: "Get an order's status change history (its owner, or any admin)" })
+  @ApiResponse({ status: 200, type: [OrderStatusHistoryResponseDto] })
+  getHistory(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<OrderStatusHistoryResponseDto[]> {
+    return this.ordersService.getOrderHistory(user, id);
+  }
+
   @Patch(':id/status')
   @UseGuards(RolesGuard)
   @Roles(Role.ADMIN)
@@ -60,9 +87,10 @@ export class OrdersController {
   })
   @ApiResponse({ status: 200, type: OrderResponseDto })
   updateStatus(
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: UpdateOrderStatusDto,
   ): Promise<OrderResponseDto> {
-    return this.ordersService.updateStatus(id, dto);
+    return this.ordersService.updateStatus(id, dto, user.email);
   }
 }

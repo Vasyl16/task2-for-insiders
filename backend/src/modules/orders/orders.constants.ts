@@ -2,6 +2,9 @@ import { OrderStatus } from '@prisma/client';
 
 export const PROCESS_ORDER_JOB = 'process-order';
 
+/** `changedBy` value recorded for status transitions not made by an admin. */
+export const SYSTEM_ACTOR = 'system';
+
 /**
  * Allowed admin-driven status transitions. NEW -> PROCESSING is also
  * enforced here for consistency, though in practice that step is only ever
