@@ -99,12 +99,21 @@ export class ProductsController {
   @Roles(Role.ADMIN)
   @HttpCode(204)
   @ApiOperation({
-    summary:
-      'Delete a product (admin only). Products that have been ordered are archived instead of removed; deleting an already-archived product is a no-op.',
+    summary: 'Archive a product (admin only). Archived products remain in the database as soft-deleted.',
   })
-  @ApiResponse({ status: 204, description: 'Deleted, archived, or already archived.' })
+  @ApiResponse({ status: 204, description: 'Archived or already archived.' })
   remove(@Param('id') id: string): Promise<void> {
     return this.productsService.delete(id);
+  }
+
+  @Patch(':id/restore')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Restore an archived product (admin only).' })
+  @ApiResponse({ status: 204, description: 'Restored or already active.' })
+  restore(@Param('id') id: string): Promise<void> {
+    return this.productsService.restore(id);
   }
 
   @Post('images')
