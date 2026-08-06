@@ -16,6 +16,8 @@ describe('ProductsService caching', () => {
       price: 10 as unknown as ProductWithCategory['price'],
       imageUrl: 'https://example.com/widget.png',
       stock: 5,
+      isActive: true,
+      deletedAt: null,
       categoryId: 'cat-1',
       category: { id: 'cat-1', name: 'Gadgets', slug: 'gadgets', createdAt: now, updatedAt: now },
       createdAt: now,
@@ -38,6 +40,8 @@ describe('ProductsService caching', () => {
     create: jest.Mock;
     update: jest.Mock;
     delete: jest.Mock;
+    hasOrderItems: jest.Mock;
+    archive: jest.Mock;
   };
   let redisService: {
     getJson: jest.Mock;
@@ -55,6 +59,8 @@ describe('ProductsService caching', () => {
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn().mockResolvedValue(undefined),
+      hasOrderItems: jest.fn().mockResolvedValue(false),
+      archive: jest.fn().mockResolvedValue(undefined),
     };
     redisService = {
       getJson: jest.fn().mockResolvedValue(null),
@@ -86,16 +92,34 @@ describe('ProductsService caching', () => {
 
       expect(result.items).toHaveLength(1);
       expect(redisService.setJson).toHaveBeenCalledWith(
-        productListCacheKey(query),
+        productListCacheKey(query, true),
         expect.objectContaining({ items: expect.any(Array) }),
         expect.any(Number),
+      );
+    });
+
+    it('forces the active-only filter for non-admin callers even if status is requested', async () => {
+      repository.findMany.mockResolvedValue({ items: [], total: 0 });
+
+      await productsService.findAll({ ...query, status: 'all' }, false);
+
+      expect(repository.findMany).toHaveBeenCalledWith(expect.objectContaining({ isActive: true }));
+    });
+
+    it('honors the status filter for admin callers', async () => {
+      repository.findMany.mockResolvedValue({ items: [], total: 0 });
+
+      await productsService.findAll({ ...query, status: 'archived' }, true);
+
+      expect(repository.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ isActive: false }),
       );
     });
   });
 
   describe('findById', () => {
     it('returns the cached product without hitting the repository on a cache hit', async () => {
-      const cached = { id: 'prod-1', name: 'Widget' };
+      const cached = { id: 'prod-1', name: 'Widget', isActive: true };
       redisService.getJson.mockResolvedValue(cached);
 
       const result = await productsService.findById('prod-1');
@@ -115,6 +139,20 @@ describe('ProductsService caching', () => {
         expect.objectContaining({ id: 'prod-1' }),
         expect.any(Number),
       );
+    });
+
+    it('throws 404 for an archived product when the caller is not an admin', async () => {
+      repository.findById.mockResolvedValue(buildProduct({ isActive: false }));
+
+      await expect(productsService.findById('prod-1', false)).rejects.toThrow('Product not found');
+    });
+
+    it('returns an archived product to an admin caller', async () => {
+      repository.findById.mockResolvedValue(buildProduct({ isActive: false }));
+
+      const result = await productsService.findById('prod-1', true);
+
+      expect(result.isActive).toBe(false);
     });
   });
 
@@ -151,6 +189,47 @@ describe('ProductsService caching', () => {
 
       expect(redisService.delByPattern).toHaveBeenCalledWith('products:list:*');
       expect(redisService.del).toHaveBeenCalledWith(productDetailCacheKey('prod-1'));
+    });
+  });
+
+  describe('delete — soft-delete rules', () => {
+    it('throws 404 when the product does not exist', async () => {
+      repository.findById.mockResolvedValue(null);
+
+      await expect(productsService.delete('missing')).rejects.toThrow('Product not found');
+      expect(repository.hasOrderItems).not.toHaveBeenCalled();
+    });
+
+    it('hard-deletes a product that has never been ordered', async () => {
+      repository.findById.mockResolvedValue(buildProduct());
+      repository.hasOrderItems.mockResolvedValue(false);
+
+      await productsService.delete('prod-1');
+
+      expect(repository.delete).toHaveBeenCalledWith('prod-1');
+      expect(repository.archive).not.toHaveBeenCalled();
+    });
+
+    it('archives (soft-deletes) a product that has been ordered', async () => {
+      repository.findById.mockResolvedValue(buildProduct());
+      repository.hasOrderItems.mockResolvedValue(true);
+
+      await productsService.delete('prod-1');
+
+      expect(repository.archive).toHaveBeenCalledWith('prod-1');
+      expect(repository.delete).not.toHaveBeenCalled();
+      expect(redisService.delByPattern).toHaveBeenCalledWith('products:list:*');
+      expect(redisService.del).toHaveBeenCalledWith(productDetailCacheKey('prod-1'));
+    });
+
+    it('is idempotent when the product is already archived', async () => {
+      repository.findById.mockResolvedValue(buildProduct({ isActive: false }));
+
+      await expect(productsService.delete('prod-1')).resolves.toBeUndefined();
+
+      expect(repository.hasOrderItems).not.toHaveBeenCalled();
+      expect(repository.archive).not.toHaveBeenCalled();
+      expect(repository.delete).not.toHaveBeenCalled();
     });
   });
 

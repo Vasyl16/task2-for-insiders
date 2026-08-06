@@ -13,7 +13,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductResponseDto } from './dto/product-response.dto';
 import { ProductListResponseDto } from './dto/product-list-response.dto';
-import { ProductsQueryDto } from './dto/products-query.dto';
+import { ProductsQueryDto, type ProductStatusFilter } from './dto/products-query.dto';
 import {
   PRODUCTS_CACHE_TTL_SECONDS,
   PRODUCTS_LIST_CACHE_PATTERN,
@@ -50,8 +50,9 @@ export class ProductsService {
     }
   }
 
-  async findAll(query: ProductsQueryDto): Promise<ProductListResponseDto> {
-    const cacheKey = productListCacheKey(query);
+  async findAll(query: ProductsQueryDto, isAdmin = false): Promise<ProductListResponseDto> {
+    const isActive = this.resolveActiveFilter(isAdmin, query.status);
+    const cacheKey = productListCacheKey(query, isActive);
     const cached = await this.redisService.getJson<ProductListResponseDto>(cacheKey);
     if (cached) {
       return cached;
@@ -67,6 +68,7 @@ export class ProductsService {
       maxPrice,
       sortBy,
       sortOrder,
+      isActive,
     });
 
     const response: ProductListResponseDto = {
@@ -77,19 +79,24 @@ export class ProductsService {
     return response;
   }
 
-  async findById(id: string): Promise<ProductResponseDto> {
+  async findById(id: string, isAdmin = false): Promise<ProductResponseDto> {
     const cacheKey = productDetailCacheKey(id);
-    const cached = await this.redisService.getJson<ProductResponseDto>(cacheKey);
-    if (cached) {
-      return cached;
+    let response = await this.redisService.getJson<ProductResponseDto>(cacheKey);
+
+    if (!response) {
+      const product = await this.productsRepository.findById(id);
+      if (!product) {
+        throw new NotFoundException('Product not found');
+      }
+      response = this.toResponse(product);
+      await this.redisService.setJson(cacheKey, response, PRODUCTS_CACHE_TTL_SECONDS);
     }
 
-    const product = await this.productsRepository.findById(id);
-    if (!product) {
+    // Archived products aren't cached per-audience, so re-check visibility on every read.
+    if (!isAdmin && !response.isActive) {
       throw new NotFoundException('Product not found');
     }
-    const response = this.toResponse(product);
-    await this.redisService.setJson(cacheKey, response, PRODUCTS_CACHE_TTL_SECONDS);
+
     return response;
   }
 
@@ -129,9 +136,32 @@ export class ProductsService {
     }
   }
 
+  /**
+   * Products that have ever been ordered are archived (soft-deleted) instead
+   * of removed, so historical orders keep pointing at a real product row.
+   * Archiving an already-archived product is idempotent — it just succeeds.
+   */
   async delete(id: string): Promise<void> {
-    await this.ensureExists(id);
-    await this.productsRepository.delete(id);
+    const product = await this.productsRepository.findById(id);
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    if (!product.isActive) {
+      return;
+    }
+
+    const hasBeenOrdered = await this.productsRepository.hasOrderItems(id);
+    if (hasBeenOrdered) {
+      await this.productsRepository.archive(id);
+    } else {
+      try {
+        await this.productsRepository.delete(id);
+      } catch (error) {
+        throw this.translateDeleteError(error);
+      }
+    }
+
     await Promise.all([
       this.invalidateListCache(),
       this.redisService.del(productDetailCacheKey(id)),
@@ -153,6 +183,20 @@ export class ProductsService {
 
   private async invalidateListCache(): Promise<void> {
     await this.redisService.delByPattern(PRODUCTS_LIST_CACHE_PATTERN);
+  }
+
+  /** Non-admins always see active products only; `status` is only honored for admins. */
+  private resolveActiveFilter(isAdmin: boolean, status?: ProductStatusFilter): boolean | undefined {
+    if (!isAdmin) {
+      return true;
+    }
+    if (status === 'archived') {
+      return false;
+    }
+    if (status === 'all') {
+      return undefined;
+    }
+    return true;
   }
 
   private async ensureExists(id: string): Promise<void> {
@@ -186,11 +230,20 @@ export class ProductsService {
       price: Number(product.price),
       imageUrl: product.imageUrl,
       stock: product.stock,
+      isActive: product.isActive,
+      deletedAt: product.deletedAt,
       categoryId: product.categoryId,
       category: product.category,
       createdAt: product.createdAt,
       updatedAt: product.updatedAt,
     };
+  }
+
+  private translateDeleteError(error: unknown): Error {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+      return new ConflictException('Cannot delete a product that is still referenced elsewhere');
+    }
+    return error instanceof Error ? error : new Error(String(error));
   }
 
   private translateWriteError(error: unknown): Error {

@@ -23,6 +23,16 @@ export class ProductResponseDto {
   @ApiProperty()
   stock!: number;
 
+  @ApiProperty({ description: 'Whether the product is visible in the customer catalog' })
+  isActive!: boolean;
+
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'When the product was archived (soft-deleted), if ever',
+  })
+  deletedAt!: Date | null;
+
   @ApiProperty()
   categoryId!: string;
 
