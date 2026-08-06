@@ -4,6 +4,8 @@ import { IsIn, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validat
 import { PaginationQueryDto } from '../../../common/dto';
 import type { ProductSortField, SortOrder } from '../repositories';
 
+export type ProductStatusFilter = 'active' | 'archived' | 'all';
+
 export class ProductsQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({ description: 'Filter by category id' })
   @IsOptional()
@@ -28,6 +30,15 @@ export class ProductsQueryDto extends PaginationQueryDto {
   @IsNumber()
   @Min(0)
   maxPrice?: number;
+
+  @ApiPropertyOptional({
+    enum: ['active', 'archived', 'all'],
+    description:
+      'Filter by active/archived status. Admin only — non-admin callers always see active products only, regardless of this value.',
+  })
+  @IsOptional()
+  @IsIn(['active', 'archived', 'all'])
+  status?: ProductStatusFilter;
 
   @ApiPropertyOptional({ enum: ['createdAt', 'price', 'name'], default: 'createdAt' })
   @IsOptional()

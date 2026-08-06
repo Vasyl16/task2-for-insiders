@@ -6,6 +6,7 @@ import { QueueNames } from '../bull';
 import { PaginationMetaDto, type PaginationQueryDto } from '../../common/dto';
 import type { AuthenticatedUser } from '../../common/interfaces';
 import {
+  CheckoutInProgressException,
   InsufficientStockException,
   InvalidOrderStatusTransitionException,
   PaymentFailedException,
@@ -13,6 +14,7 @@ import {
 import { roundToCents } from '../../common/utils';
 import { ProductsService } from '../products';
 import { AnalyticsService } from '../analytics';
+import { RedisService } from '../redis';
 import { MockPaymentGatewayService } from './mock-payment-gateway.service';
 import {
   OrdersRepository,
@@ -26,7 +28,13 @@ import {
   OrderStatusHistoryResponseDto,
   UpdateOrderStatusDto,
 } from './dto';
-import { ORDER_STATUS_TRANSITIONS, PROCESS_ORDER_JOB, SYSTEM_ACTOR } from './orders.constants';
+import {
+  CHECKOUT_LOCK_TTL_SECONDS,
+  checkoutLockKey,
+  ORDER_STATUS_TRANSITIONS,
+  PROCESS_ORDER_JOB,
+  SYSTEM_ACTOR,
+} from './orders.constants';
 import type { ProcessOrderJobData } from './processors';
 
 @Injectable()
@@ -38,78 +46,102 @@ export class OrdersService {
     private readonly paymentGateway: MockPaymentGatewayService,
     private readonly productsService: ProductsService,
     private readonly analyticsService: AnalyticsService,
+    private readonly redisService: RedisService,
     @InjectQueue(QueueNames.ORDERS) private readonly ordersQueue: Queue<ProcessOrderJobData>,
   ) {}
 
+  /**
+   * Double-clicks, duplicate browser tabs, or client-side retries can fire two
+   * `/checkout` requests for the same user before the first has finished
+   * clearing their cart — both would then read the same cart items and each
+   * create its own order from them. A per-user Redis lock serializes checkout
+   * so only one request per user proceeds at a time; a second concurrent
+   * request is rejected immediately rather than queued, since the first is
+   * already handling the same cart. Different users never contend with each
+   * other, since the lock key is scoped to the user id.
+   */
   async checkout(userId: string): Promise<OrderResponseDto> {
-    const order = await this.ordersRepository.runInTransaction(async (tx) => {
-      const cart = await this.ordersRepository.findCartForCheckout(tx, userId);
+    const lockAcquired = await this.acquireCheckoutLock(userId);
+    if (!lockAcquired) {
+      throw new CheckoutInProgressException();
+    }
 
-      if (!cart || cart.items.length === 0) {
-        throw new BadRequestException('Cart is empty');
-      }
+    try {
+      const order = await this.ordersRepository.runInTransaction(async (tx) => {
+        const cart = await this.ordersRepository.findCartForCheckout(tx, userId);
 
-      const totalAmount = roundToCents(
-        cart.items.reduce((sum, item) => sum + Number(item.product.price) * item.quantity, 0),
-      );
-
-      // Gate the whole checkout on payment before touching stock or
-      // creating anything — a decline leaves no trace to roll back.
-      const payment = await this.paymentGateway.charge(totalAmount);
-      if (!payment.success) {
-        throw new PaymentFailedException(payment.reason ?? 'Payment declined');
-      }
-
-      for (const item of cart.items) {
-        const decremented = await this.ordersRepository.decrementStock(
-          tx,
-          item.productId,
-          item.quantity,
-        );
-        if (!decremented) {
-          throw new InsufficientStockException(item.product.stock);
+        if (!cart || cart.items.length === 0) {
+          throw new BadRequestException('Cart is empty');
         }
-      }
 
-      const created = await this.ordersRepository.createOrder(tx, {
-        status: OrderStatus.NEW,
-        totalAmount,
-        user: { connect: { id: userId } },
-        items: {
-          create: cart.items.map((item) => ({
-            productId: item.productId,
-            productName: item.product.name,
-            quantity: item.quantity,
-            unitPrice: Number(item.product.price),
-          })),
-        },
-        // Part of the same atomic write as order/item creation, unlike
-        // later transitions which get their own history row via
-        // updateStatusWithHistory.
-        statusHistory: { create: { status: OrderStatus.NEW, changedBy: SYSTEM_ACTOR } },
+        const totalAmount = roundToCents(
+          cart.items.reduce((sum, item) => sum + Number(item.product.price) * item.quantity, 0),
+        );
+
+        // Gate the whole checkout on payment before touching stock or
+        // creating anything — a decline leaves no trace to roll back.
+        const payment = await this.paymentGateway.charge(totalAmount);
+        if (!payment.success) {
+          throw new PaymentFailedException(payment.reason ?? 'Payment declined');
+        }
+
+        for (const item of cart.items) {
+          const decremented = await this.ordersRepository.decrementStock(
+            tx,
+            item.productId,
+            item.quantity,
+          );
+          if (!decremented) {
+            throw new InsufficientStockException(item.product.stock);
+          }
+        }
+
+        const created = await this.ordersRepository.createOrder(tx, {
+          status: OrderStatus.NEW,
+          totalAmount,
+          user: { connect: { id: userId } },
+          items: {
+            create: cart.items.map((item) => ({
+              productId: item.productId,
+              productName: item.product.name,
+              quantity: item.quantity,
+              unitPrice: Number(item.product.price),
+            })),
+          },
+          // Part of the same atomic write as order/item creation, unlike
+          // later transitions which get their own history row via
+          // updateStatusWithHistory.
+          statusHistory: { create: { status: OrderStatus.NEW, changedBy: SYSTEM_ACTOR } },
+        });
+
+        await this.ordersRepository.clearCartItems(tx, cart.id);
+
+        return created;
       });
 
-      await this.ordersRepository.clearCartItems(tx, cart.id);
+      this.logger.log(`Order ${order.id} created`);
 
-      return created;
-    });
+      // Stock just changed for these products but bypassed ProductsService
+      // (checkout decrements it directly, transaction-scoped) — bust their
+      // cached reads so stock numbers don't go stale.
+      await Promise.all([
+        this.productsService.invalidateProductsCache(order.items.map((item) => item.productId)),
+        // A new order changes revenue/order-count/top-products/sales-per-day.
+        this.analyticsService.invalidateCache(),
+      ]);
 
-    this.logger.log(`Order ${order.id} created`);
+      // Order processing (NEW -> PROCESSING) happens asynchronously in the
+      // orders worker so checkout responds as soon as the order is committed.
+      await this.ordersQueue.add(PROCESS_ORDER_JOB, { orderId: order.id });
 
-    // Stock just changed for these products but bypassed ProductsService
-    // (checkout decrements it directly, transaction-scoped) — bust their
-    // cached reads so stock numbers don't go stale.
-    await Promise.all([
-      this.productsService.invalidateProductsCache(order.items.map((item) => item.productId)),
-      // A new order changes revenue/order-count/top-products/sales-per-day.
-      this.analyticsService.invalidateCache(),
-    ]);
-
-    // Order processing (NEW -> PROCESSING) happens asynchronously in the
-    // orders worker so checkout responds as soon as the order is committed.
-    await this.ordersQueue.add(PROCESS_ORDER_JOB, { orderId: order.id });
-
-    return this.toResponse(order);
+      return this.toResponse(order);
+    } finally {
+      // Always release, whether checkout succeeded, was rejected (empty cart,
+      // payment decline, insufficient stock), or threw unexpectedly — an
+      // empty-cart or declined-payment request must not leave the user
+      // permanently locked out of retrying.
+      await this.releaseCheckoutLock(userId);
+    }
   }
 
   async findMyOrders(userId: string, query: PaginationQueryDto): Promise<OrderListResponseDto> {
@@ -192,6 +224,15 @@ export class OrdersService {
     await this.analyticsService.invalidateCache();
 
     return this.toResponse(updated);
+  }
+
+  /** SET checkout:<userId> NX EX — succeeds only if no checkout is already in flight for this user. */
+  private async acquireCheckoutLock(userId: string): Promise<boolean> {
+    return this.redisService.acquireLock(checkoutLockKey(userId), CHECKOUT_LOCK_TTL_SECONDS);
+  }
+
+  private async releaseCheckoutLock(userId: string): Promise<void> {
+    await this.redisService.releaseLock(checkoutLockKey(userId));
   }
 
   private logStatusChange(orderId: string, status: OrderStatus): void {

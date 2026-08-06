@@ -51,6 +51,31 @@ export class RedisService {
     }
   }
 
+  /**
+   * Attempts to acquire a short-lived, auto-expiring mutex via `SET key val NX EX ttl` —
+   * atomic, so two concurrent callers can never both believe they hold it. Returns true
+   * if this call created the key (lock acquired), false if it already existed (held by
+   * someone else) or Redis was unreachable.
+   *
+   * Unlike the cache-aside helpers above, this does NOT fail open: a Redis error is
+   * treated as "lock not acquired" rather than a silent pass-through, because callers use
+   * this for correctness (e.g. preventing duplicate checkouts), not just performance.
+   */
+  async acquireLock(key: string, ttlSeconds: number): Promise<boolean> {
+    try {
+      const result = await this.client.set(key, 'locked', 'EX', ttlSeconds, 'NX');
+      return result === 'OK';
+    } catch (error) {
+      this.logger.warn(`Lock acquire failed for "${key}": ${(error as Error).message}`);
+      return false;
+    }
+  }
+
+  /** Releases a lock acquired via acquireLock(). Fails open (logs only) so a release-time hiccup can never wedge a request in its finally block. */
+  async releaseLock(key: string): Promise<void> {
+    await this.del(key);
+  }
+
   /** Deletes every key matching a glob pattern (e.g. "products:list:*") via non-blocking SCAN. */
   async delByPattern(pattern: string): Promise<void> {
     try {

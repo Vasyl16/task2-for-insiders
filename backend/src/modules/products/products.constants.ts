@@ -20,9 +20,13 @@ export const ALLOWED_PRODUCT_IMAGE_MIME_TYPES = [
 export const PRODUCTS_CACHE_TTL_SECONDS = 300;
 export const PRODUCTS_LIST_CACHE_PATTERN = 'products:list:*';
 
-export function productListCacheKey(query: ProductsQueryDto): string {
+export function productListCacheKey(
+  query: ProductsQueryDto,
+  isActive: boolean | undefined,
+): string {
   const { page, limit, categoryId, search, minPrice, maxPrice, sortBy, sortOrder } = query;
-  return `products:list:${page}:${limit}:${categoryId ?? ''}:${search ?? ''}:${minPrice ?? ''}:${maxPrice ?? ''}:${sortBy}:${sortOrder}`;
+  const activeSegment = isActive === undefined ? 'all' : String(isActive);
+  return `products:list:${page}:${limit}:${categoryId ?? ''}:${search ?? ''}:${minPrice ?? ''}:${maxPrice ?? ''}:${sortBy}:${sortOrder}:${activeSegment}`;
 }
 
 export function productDetailCacheKey(id: string): string {

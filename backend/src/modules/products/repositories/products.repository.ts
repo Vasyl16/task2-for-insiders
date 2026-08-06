@@ -16,6 +16,8 @@ export interface FindProductsOptions {
   maxPrice?: number;
   sortBy: ProductSortField;
   sortOrder: SortOrder;
+  /** `true` = active only, `false` = archived only, `undefined` = no filter (all). */
+  isActive?: boolean;
 }
 
 export interface PaginatedResult<T> {
@@ -56,7 +58,8 @@ export class ProductsRepository {
   }
 
   async findMany(options: FindProductsOptions): Promise<PaginatedResult<ProductWithCategory>> {
-    const { page, limit, categoryId, search, minPrice, maxPrice, sortBy, sortOrder } = options;
+    const { page, limit, categoryId, search, minPrice, maxPrice, sortBy, sortOrder, isActive } =
+      options;
 
     const where: Prisma.ProductWhereInput = {
       ...(categoryId && { categoryId }),
@@ -72,6 +75,7 @@ export class ProductsRepository {
           ...(maxPrice !== undefined && { lte: maxPrice }),
         },
       }),
+      ...(isActive !== undefined && { isActive }),
     };
 
     const [items, total] = await Promise.all([
@@ -86,5 +90,21 @@ export class ProductsRepository {
     ]);
 
     return { items, total };
+  }
+
+  /** Whether this product has ever appeared in a placed order — determines archive vs hard delete. */
+  async hasOrderItems(productId: string): Promise<boolean> {
+    const orderItem = await this.prisma.orderItem.findFirst({
+      where: { productId },
+      select: { id: true },
+    });
+    return orderItem !== null;
+  }
+
+  archive(id: string): Promise<Product> {
+    return this.prisma.product.update({
+      where: { id },
+      data: { isActive: false, deletedAt: new Date() },
+    });
   }
 }

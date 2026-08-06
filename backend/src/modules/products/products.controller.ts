@@ -26,8 +26,9 @@ import {
 } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { diskStorage } from 'multer';
-import { Roles } from '../../common/decorators';
+import { CurrentUser, Roles } from '../../common/decorators';
 import { RolesGuard } from '../../common/guards';
+import type { AuthenticatedUser } from '../../common/interfaces';
 import {
   ALLOWED_PRODUCT_IMAGE_MIME_TYPES,
   MAX_PRODUCT_IMAGE_SIZE_BYTES,
@@ -51,17 +52,28 @@ export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List products (paginated, filterable, sortable)' })
+  @ApiOperation({
+    summary:
+      'List products (paginated, filterable, sortable). Non-admins always see active products only; admins can pass `status` to include archived products.',
+  })
   @ApiResponse({ status: 200, type: ProductListResponseDto })
-  findAll(@Query() query: ProductsQueryDto): Promise<ProductListResponseDto> {
-    return this.productsService.findAll(query);
+  findAll(
+    @Query() query: ProductsQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<ProductListResponseDto> {
+    return this.productsService.findAll(query, user.role === Role.ADMIN);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get a product by id' })
+  @ApiOperation({
+    summary: 'Get a product by id. Archived products are only visible to admins.',
+  })
   @ApiResponse({ status: 200, type: ProductResponseDto })
-  findOne(@Param('id') id: string): Promise<ProductResponseDto> {
-    return this.productsService.findById(id);
+  findOne(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<ProductResponseDto> {
+    return this.productsService.findById(id, user.role === Role.ADMIN);
   }
 
   @Post()
@@ -86,8 +98,11 @@ export class ProductsController {
   @UseGuards(RolesGuard)
   @Roles(Role.ADMIN)
   @HttpCode(204)
-  @ApiOperation({ summary: 'Delete a product (admin only)' })
-  @ApiResponse({ status: 204 })
+  @ApiOperation({
+    summary:
+      'Delete a product (admin only). Products that have been ordered are archived instead of removed; deleting an already-archived product is a no-op.',
+  })
+  @ApiResponse({ status: 204, description: 'Deleted, archived, or already archived.' })
   remove(@Param('id') id: string): Promise<void> {
     return this.productsService.delete(id);
   }

@@ -1,12 +1,14 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { OrderStatus } from '@prisma/client';
 import {
+  CheckoutInProgressException,
   InsufficientStockException,
   InvalidOrderStatusTransitionException,
   PaymentFailedException,
 } from '../../common/exceptions';
+import type { RedisService } from '../redis';
 import { OrdersService } from './orders.service';
-import { PROCESS_ORDER_JOB } from './orders.constants';
+import { checkoutLockKey, CHECKOUT_LOCK_TTL_SECONDS, PROCESS_ORDER_JOB } from './orders.constants';
 import type { MockPaymentGatewayService } from './mock-payment-gateway.service';
 import type { CartForCheckout, OrderWithItems, OrdersRepository } from './repositories';
 
@@ -101,6 +103,7 @@ describe('OrdersService', () => {
   let paymentGateway: jest.Mocked<Pick<MockPaymentGatewayService, 'charge'>>;
   let productsService: { invalidateProductsCache: jest.Mock };
   let analyticsService: { invalidateCache: jest.Mock };
+  let redisService: { acquireLock: jest.Mock; releaseLock: jest.Mock };
   let ordersQueue: { add: jest.Mock };
   let ordersService: OrdersService;
 
@@ -120,6 +123,10 @@ describe('OrdersService', () => {
     paymentGateway = { charge: jest.fn() };
     productsService = { invalidateProductsCache: jest.fn().mockResolvedValue(undefined) };
     analyticsService = { invalidateCache: jest.fn().mockResolvedValue(undefined) };
+    redisService = {
+      acquireLock: jest.fn().mockResolvedValue(true),
+      releaseLock: jest.fn().mockResolvedValue(undefined),
+    };
     ordersQueue = { add: jest.fn().mockResolvedValue(undefined) };
 
     ordersService = new OrdersService(
@@ -127,6 +134,7 @@ describe('OrdersService', () => {
       paymentGateway as unknown as MockPaymentGatewayService,
       productsService as never,
       analyticsService as never,
+      redisService as unknown as RedisService,
       ordersQueue as never,
     );
   });
@@ -253,6 +261,44 @@ describe('OrdersService', () => {
           },
         ],
       });
+    });
+  });
+
+  describe('checkout — distributed lock', () => {
+    it('acquires a per-user lock before touching the cart and releases it after a successful checkout', async () => {
+      repository.findCartForCheckout.mockResolvedValue(buildCart());
+      paymentGateway.charge.mockResolvedValue({ success: true, transactionId: 'txn-1' });
+      repository.decrementStock.mockResolvedValue(true);
+      repository.createOrder.mockResolvedValue(buildOrder());
+
+      await ordersService.checkout(userId);
+
+      expect(redisService.acquireLock).toHaveBeenCalledWith(
+        checkoutLockKey(userId),
+        CHECKOUT_LOCK_TTL_SECONDS,
+      );
+      expect(redisService.releaseLock).toHaveBeenCalledWith(checkoutLockKey(userId));
+    });
+
+    it('rejects with CheckoutInProgressException and never reads the cart when the lock is already held', async () => {
+      redisService.acquireLock.mockResolvedValue(false);
+
+      await expect(ordersService.checkout(userId)).rejects.toBeInstanceOf(
+        CheckoutInProgressException,
+      );
+      expect(repository.runInTransaction).not.toHaveBeenCalled();
+      expect(paymentGateway.charge).not.toHaveBeenCalled();
+      // Nothing was acquired by this call, so it must not release someone else's lock.
+      expect(redisService.releaseLock).not.toHaveBeenCalled();
+    });
+
+    it('still releases the lock when checkout fails (e.g. payment declined)', async () => {
+      repository.findCartForCheckout.mockResolvedValue(buildCart());
+      paymentGateway.charge.mockResolvedValue({ success: false, reason: 'card declined' });
+
+      await expect(ordersService.checkout(userId)).rejects.toBeInstanceOf(PaymentFailedException);
+
+      expect(redisService.releaseLock).toHaveBeenCalledWith(checkoutLockKey(userId));
     });
   });
 
