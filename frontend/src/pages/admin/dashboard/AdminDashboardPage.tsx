@@ -1,24 +1,42 @@
+import { useMemo, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   CheckCircle2,
+  DollarSign,
   LayoutDashboard,
   ListTree,
   Loader2,
   Package,
   Receipt,
+  ShoppingCart,
+  TrendingUp,
   Truck,
   XCircle,
   Zap,
 } from 'lucide-react';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { Link } from 'react-router-dom';
 import { paths } from '@/app/routes';
 import { useProducts } from '@/entities/product';
 import { useCategories } from '@/entities/category';
 import { useAdminOrders, type OrderStatus } from '@/entities/order';
+import { useAnalyticsOverview, useSalesPerDay, useTopProducts } from '@/entities/analytics';
+import { ExportCsvButton } from '@/features/export-sales-csv';
+import { Select } from '@/shared/ui';
 
 interface StatCardProps {
   label: string;
-  value: number | undefined;
+  value: string | number | undefined;
   isLoading: boolean;
   Icon: LucideIcon;
 }
@@ -49,7 +67,26 @@ const ORDER_STATUS_STATS: { status: OrderStatus; label: string; Icon: LucideIcon
   { status: 'CANCELLED', label: 'Cancelled', Icon: XCircle },
 ];
 
+const RANGE_OPTIONS = [
+  { value: '7', label: 'Last 7 days' },
+  { value: '30', label: 'Last 30 days' },
+  { value: '90', label: 'Last 90 days' },
+];
+
+const CHART_LABEL_STYLE = { fontSize: 12, fill: '#64748b' };
+
 export function AdminDashboardPage() {
+  const [rangeDays, setRangeDays] = useState('30');
+
+  const range = useMemo(() => {
+    const to = new Date();
+    const from = new Date(to.getTime() - Number(rangeDays) * 24 * 60 * 60 * 1000);
+    return { from: from.toISOString(), to: to.toISOString() };
+  }, [rangeDays]);
+
+  const overview = useAnalyticsOverview(range);
+  const salesPerDay = useSalesPerDay(range);
+  const topProducts = useTopProducts({ ...range, limit: 5 });
   const products = useProducts({ limit: 1 });
   const categories = useCategories();
   const newOrders = useAdminOrders({ limit: 1, status: 'NEW' });
@@ -68,12 +105,44 @@ export function AdminDashboardPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
-      <h1 className="mb-6 flex items-center gap-2 text-2xl font-semibold text-slate-900">
-        <LayoutDashboard className="h-6 w-6" />
-        Dashboard
-      </h1>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+        <h1 className="flex items-center gap-2 text-2xl font-semibold text-slate-900">
+          <LayoutDashboard className="h-6 w-6" />
+          Dashboard
+        </h1>
+        <div className="flex items-center gap-2">
+          <Select
+            options={RANGE_OPTIONS}
+            value={rangeDays}
+            onChange={setRangeDays}
+            aria-label="Date range"
+            className="w-40"
+          />
+          <ExportCsvButton range={range} />
+        </div>
+      </div>
 
-      <div className="mb-8 grid gap-4 sm:grid-cols-2">
+      <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <StatCard
+          label="Revenue"
+          value={overview.isLoading ? undefined : `$${(overview.data?.revenue ?? 0).toFixed(2)}`}
+          isLoading={overview.isLoading}
+          Icon={DollarSign}
+        />
+        <StatCard
+          label="Orders"
+          value={overview.data?.ordersCount}
+          isLoading={overview.isLoading}
+          Icon={ShoppingCart}
+        />
+        <StatCard
+          label="Avg. order value"
+          value={
+            overview.isLoading ? undefined : `$${(overview.data?.averageOrderValue ?? 0).toFixed(2)}`
+          }
+          isLoading={overview.isLoading}
+          Icon={TrendingUp}
+        />
         <StatCard
           label="Total products"
           value={products.data?.meta.total}
@@ -86,6 +155,64 @@ export function AdminDashboardPage() {
           isLoading={categories.isLoading}
           Icon={ListTree}
         />
+      </div>
+
+      <div className="mb-8 grid gap-4 lg:grid-cols-2">
+        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Revenue per day
+          </h2>
+          {salesPerDay.isLoading ? (
+            <div className="flex h-56 items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+            </div>
+          ) : salesPerDay.data && salesPerDay.data.length > 0 ? (
+            <ResponsiveContainer width="100%" height={224}>
+              <LineChart data={salesPerDay.data}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="date" tick={CHART_LABEL_STYLE} tickMargin={8} />
+                <YAxis tick={CHART_LABEL_STYLE} width={48} />
+                <Tooltip formatter={(value: number) => `$${value.toFixed(2)}`} />
+                <Line type="monotone" dataKey="revenue" stroke="#0f172a" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="flex h-56 items-center justify-center text-sm text-slate-500">
+              No sales in this range.
+            </p>
+          )}
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Top products by revenue
+          </h2>
+          {topProducts.isLoading ? (
+            <div className="flex h-56 items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+            </div>
+          ) : topProducts.data && topProducts.data.length > 0 ? (
+            <ResponsiveContainer width="100%" height={224}>
+              <BarChart data={topProducts.data} layout="vertical" margin={{ left: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
+                <XAxis type="number" tick={CHART_LABEL_STYLE} />
+                <YAxis
+                  dataKey="productName"
+                  type="category"
+                  width={120}
+                  tick={CHART_LABEL_STYLE}
+                  tickFormatter={(name: string) => (name.length > 16 ? `${name.slice(0, 16)}…` : name)}
+                />
+                <Tooltip formatter={(value: number) => `$${value.toFixed(2)}`} />
+                <Bar dataKey="revenue" fill="#0f172a" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="flex h-56 items-center justify-center text-sm text-slate-500">
+              No sales in this range.
+            </p>
+          )}
+        </div>
       </div>
 
       <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
