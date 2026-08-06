@@ -13,6 +13,8 @@ const sampleProduct: Product = {
   price: 129.99,
   imageUrl: PLACEHOLDER_IMAGE,
   stock: 12,
+  isActive: true,
+  deletedAt: null,
   categoryId: 'cat-1',
   category: { id: 'cat-1', name: 'Electronics', slug: 'electronics' },
   createdAt: new Date().toISOString(),

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AlertCircle, Loader2, Package, Pencil, Plus, Trash2 } from 'lucide-react';
-import { useProducts, type Product } from '@/entities/product';
+import { useProducts, type Product, type ProductStatusFilter } from '@/entities/product';
 import { CategoryFilter, SearchInput } from '@/features/catalog-search';
 import { ProductFormModal, useDeleteProduct } from '@/features/manage-products';
 import { Pagination } from '@/shared/ui';
@@ -9,6 +9,7 @@ export function AdminProductsPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [categoryId, setCategoryId] = useState<string | undefined>(undefined);
+  const [statusFilter, setStatusFilter] = useState<ProductStatusFilter>('active');
   const [editingProduct, setEditingProduct] = useState<Product | undefined>(undefined);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
@@ -18,6 +19,7 @@ export function AdminProductsPage() {
     limit: 20,
     search: search || undefined,
     categoryId,
+    status: statusFilter,
   });
   const deleteProduct = useDeleteProduct();
 
@@ -48,7 +50,7 @@ export function AdminProductsPage() {
         </button>
       </div>
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-2">
+      <div className="mb-6 grid gap-3 sm:grid-cols-[1.5fr,1fr,auto]">
         <SearchInput
           value={search}
           onChange={(value) => {
@@ -63,6 +65,26 @@ export function AdminProductsPage() {
             setPage(1);
           }}
         />
+        <div className="flex items-center rounded-full border border-slate-200 bg-white p-1">
+          {(['active', 'archived', 'all'] as ProductStatusFilter[]).map((option) => {
+            const isActive = statusFilter === option;
+            return (
+              <button
+                key={option}
+                type="button"
+                onClick={() => {
+                  setStatusFilter(option);
+                  setPage(1);
+                }}
+                className={`rounded-full px-3 py-1.5 text-sm font-medium capitalize transition ${
+                  isActive ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                {option}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {isLoading && (
@@ -93,6 +115,7 @@ export function AdminProductsPage() {
                 <th className="px-4 py-3 font-medium">Product</th>
                 <th className="px-4 py-3 font-medium">Category</th>
                 <th className="px-4 py-3 font-medium">Price</th>
+                <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Stock</th>
                 <th className="px-4 py-3" />
               </tr>
@@ -113,7 +136,22 @@ export function AdminProductsPage() {
                   <td className="px-4 py-3 text-slate-700">{product.category.name}</td>
                   <td className="px-4 py-3 text-slate-700">${product.price.toFixed(2)}</td>
                   <td className="px-4 py-3">
-                    <span className={product.stock === 0 ? 'font-medium text-red-600' : 'text-slate-700'}>
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
+                        product.isActive
+                          ? 'bg-emerald-50 text-emerald-700'
+                          : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      {product.isActive ? 'Active' : 'Archived'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={
+                        product.stock === 0 ? 'font-medium text-red-600' : 'text-slate-700'
+                      }
+                    >
                       {product.stock}
                     </span>
                   </td>
@@ -171,11 +209,19 @@ export function AdminProductsPage() {
 
       {data && (
         <div className="mt-8">
-          <Pagination page={data.meta.page} totalPages={data.meta.totalPages} onPageChange={setPage} />
+          <Pagination
+            page={data.meta.page}
+            totalPages={data.meta.totalPages}
+            onPageChange={setPage}
+          />
         </div>
       )}
 
-      <ProductFormModal isOpen={isFormOpen} onClose={() => setIsFormOpen(false)} product={editingProduct} />
+      <ProductFormModal
+        isOpen={isFormOpen}
+        onClose={() => setIsFormOpen(false)}
+        product={editingProduct}
+      />
     </div>
   );
 }

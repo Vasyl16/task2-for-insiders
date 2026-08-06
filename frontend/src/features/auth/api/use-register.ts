@@ -8,8 +8,12 @@ export function useRegister(): UseMutationResult<AuthResponse, unknown, Register
   const { setSession } = useSession();
 
   return useMutation({
-    mutationFn: async (values: Register) => {
-      const { data } = await apiClient.post<AuthResponse>('/auth/register', values);
+    mutationFn: async ({ email, password, confirmPassword }: Register) => {
+      const { data } = await apiClient.post<AuthResponse>('/auth/register', {
+        email,
+        password,
+        confirmPassword,
+      });
       return data;
     },
     onSuccess: (data) => {

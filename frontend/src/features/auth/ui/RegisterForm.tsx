@@ -3,6 +3,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Button, Input, Label, FormError } from '@/shared/ui';
 import { registerSchema, type Register } from '../model/schemas';
 import { useRegister } from '../api/use-register';
+import { getRegisterErrorMessage } from '../model/get-register-error-message';
 
 interface RegisterFormProps {
   onSuccess?: () => void;
@@ -15,6 +16,9 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
     formState: { errors },
   } = useForm<Register>({ resolver: zodResolver(registerSchema) });
   const registerMutation = useRegister();
+  const submitErrorMessage = registerMutation.isError
+    ? getRegisterErrorMessage(registerMutation.error)
+    : undefined;
 
   const onSubmit = handleSubmit((values) => {
     registerMutation.mutate(values, { onSuccess });
@@ -37,9 +41,17 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
         />
         <FormError message={errors.password?.message} />
       </div>
-      <FormError
-        message={registerMutation.isError ? 'Could not create an account with those details.' : undefined}
-      />
+      <div>
+        <Label htmlFor="register-confirm-password">Repeat password</Label>
+        <Input
+          id="register-confirm-password"
+          type="password"
+          autoComplete="new-password"
+          {...register('confirmPassword')}
+        />
+        <FormError message={errors.confirmPassword?.message} />
+      </div>
+      <FormError message={submitErrorMessage} />
       <Button type="submit" isLoading={registerMutation.isPending}>
         Create account
       </Button>
