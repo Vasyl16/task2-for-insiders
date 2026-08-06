@@ -26,6 +26,8 @@ COPY package*.json ./
 COPY prisma ./prisma
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build --chown=node:node /app/dist ./dist
+COPY --from=build --chown=node:node /app/uploads ./uploads
+RUN mkdir -p /app/uploads && chown -R node:node /app/uploads
 
 USER node
 EXPOSE 3000
@@ -33,4 +35,4 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://localhost:3000/health || exit 1
 
-CMD ["node", "dist/main"]
+CMD ["node", "dist/src/main"]
