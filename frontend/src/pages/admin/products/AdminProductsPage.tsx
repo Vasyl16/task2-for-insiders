@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { AlertCircle, Loader2, Package, Pencil, Plus, Trash2 } from 'lucide-react';
+import { AlertCircle, Loader2, Package, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { useProducts, type Product, type ProductStatusFilter } from '@/entities/product';
 import { CategoryFilter, SearchInput } from '@/features/catalog-search';
-import { ProductFormModal, useDeleteProduct } from '@/features/manage-products';
+import { ProductFormModal, useDeleteProduct, useRestoreProduct } from '@/features/manage-products';
 import { Pagination } from '@/shared/ui';
 
 export function AdminProductsPage() {
@@ -22,6 +22,7 @@ export function AdminProductsPage() {
     status: statusFilter,
   });
   const deleteProduct = useDeleteProduct();
+  const restoreProduct = useRestoreProduct();
 
   const openCreateForm = () => {
     setEditingProduct(undefined);
@@ -189,14 +190,25 @@ export function AdminProductsPage() {
                         >
                           <Pencil className="h-4 w-4" />
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmingDeleteId(product.id)}
-                          aria-label={`Delete ${product.name}`}
-                          className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-red-50 hover:text-red-600"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        {product.isActive ? (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmingDeleteId(product.id)}
+                            aria-label={`Archive ${product.name}`}
+                            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-red-50 hover:text-red-600"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => restoreProduct.mutate(product.id)}
+                            aria-label={`Restore ${product.name}`}
+                            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-emerald-50 hover:text-emerald-600"
+                          >
+                            <RotateCcw className="h-4 w-4" />
+                          </button>
+                        )}
                       </div>
                     )}
                   </td>
