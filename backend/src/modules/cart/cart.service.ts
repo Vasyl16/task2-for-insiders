@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Product } from '@prisma/client';
+import { Prisma, Product } from '@prisma/client';
 import { InsufficientStockException } from '../../common/exceptions';
 import { roundToCents } from '../../common/utils';
 import { ProductsService } from '../products';
@@ -34,7 +34,17 @@ export class CartService {
     if (existing) {
       await this.cartRepository.updateItemQuantity(existing.id, nextQuantity);
     } else {
-      await this.cartRepository.createItem(cart.id, dto.productId, dto.quantity);
+      try {
+        await this.cartRepository.createItem(cart.id, dto.productId, dto.quantity);
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+          // Product existed in the (stale) cache ProductsService validated against but
+          // no longer exists in the database — evict it so the next lookup 404s cleanly.
+          await this.productsService.invalidateProductsCache([dto.productId]);
+          throw new NotFoundException('Product not found');
+        }
+        throw error;
+      }
     }
 
     return this.getCart(userId);
