@@ -1,29 +1,29 @@
 # Mini Marketplace
 
-A monorepo bootstrap for a mini e-commerce marketplace: a NestJS API and a
-React storefront/admin dashboard, sharing a single repository but deployed
-and developed as independent applications.
-
-> **Status:** architecture bootstrap only. No business logic, no database
-> schema, no auth implementation, no API endpoints, no UI — see
-> [Future Implementation Plan](#future-implementation-plan).
+A monorepo for a mini e-commerce marketplace: a NestJS API and a React
+storefront/admin dashboard, sharing a single repository but deployed and
+developed as independent applications.
 
 ## Project Overview
 
-The marketplace lets shoppers browse products by category, manage a cart,
-and check out, while admins manage the product catalog, categories, and
-orders. The backend exposes a REST API secured with JWT; the frontend
-consumes it as a decoupled SPA. Background jobs (e.g. order processing,
-notifications) run through a Redis-backed queue.
+The marketplace lets shoppers register, browse products by category, manage
+a cart, and check out, while admins manage the product catalog, categories,
+and order lifecycle. The backend exposes a REST API secured with JWT
+access/refresh tokens; the frontend consumes it as a decoupled SPA.
+Checkout is processed asynchronously via a Redis-backed BullMQ queue, which
+decrements stock and sends an order receipt email (via Resend) once
+processing completes.
 
 ## Tech Stack
 
 **Backend** (`backend/`)
 - NestJS + TypeScript
 - Prisma ORM + PostgreSQL
-- Redis + BullMQ (background jobs/queues)
-- JWT authentication
+- Redis (caching) + BullMQ (async order processing)
+- JWT access/refresh authentication, role-based guards
+- Resend (transactional email — order receipts)
 - Swagger/OpenAPI, Helmet, class-validator, rate limiting
+- Jest (unit + e2e)
 - Docker
 
 **Frontend** (`frontend/`)
@@ -32,6 +32,7 @@ notifications) run through a Redis-backed queue.
 - React Router, TanStack Query, Axios
 - React Hook Form + Zod
 - Tailwind CSS
+- Vitest + Testing Library
 - Storybook
 
 ## Folder Structure
@@ -40,30 +41,33 @@ notifications) run through a Redis-backed queue.
 /
 ├── backend/                 NestJS API
 │   ├── src/
-│   │   ├── common/          decorators, dto, filters, guards, pipes, ... (cross-cutting)
+│   │   ├── common/          decorators, dto, exceptions, filters, guards, pipes, utils (cross-cutting)
 │   │   ├── config/          typed configuration + env validation
 │   │   └── modules/
-│   │       ├── auth/ users/ products/ categories/ cart/ orders/ analytics/   (feature modules)
-│   │       └── database/ redis/ bull/ health/                                (infrastructure modules)
-│   ├── prisma/               schema.prisma (no models yet)
-│   ├── test/                 e2e tests
-│   ├── scripts/               operational scripts
-│   ├── .claude/ CLAUDE.md    backend-specific conventions
+│   │       ├── auth/ users/ products/ categories/ cart/ orders/ analytics/ email/   (feature modules)
+│   │       └── database/ redis/ bull/ health/                                       (infrastructure modules)
+│   ├── prisma/                schema.prisma + migrations (User, Product, Category, Cart, CartItem, Order, OrderItem, OrderStatusHistory, RefreshToken)
+│   ├── test/                  e2e tests (Jest)
+│   ├── scripts/                operational scripts (e.g. seed-products.ts)
+│   ├── .claude/ CLAUDE.md     backend-specific conventions
 │   └── Dockerfile
 │
 ├── frontend/                 React SPA
 │   ├── src/
-│   │   ├── app/              providers, routes, global styles, composition root
-│   │   ├── pages/             route-level components (Home, Product, Cart, Checkout, Profile, Admin*, 404)
-│   │   ├── widgets/            layouts (MainLayout, AdminLayout)
-│   │   ├── features/            user-interaction slices (empty — added incrementally)
-│   │   ├── entities/            domain-noun slices (empty — added incrementally)
-│   │   └── shared/               api, config, hooks, lib, types, ui, utils
+│   │   ├── app/               providers, routes, global styles, composition root
+│   │   ├── pages/              home, product, cart, checkout, orders, profile, login, register, admin/*, not-found
+│   │   ├── widgets/             layouts (MainLayout, AdminLayout)
+│   │   ├── features/             auth, add-to-cart, manage-cart-item, checkout, catalog-search,
+│   │   │                          manage-products, manage-categories, manage-order-status,
+│   │   │                          update-profile, change-password, export-sales-csv
+│   │   ├── entities/             product, category, cart, order, user, session, analytics
+│   │   └── shared/                api, config, hooks, lib, types, ui, utils
 │   ├── .storybook/
-│   ├── .claude/ CLAUDE.md      frontend-specific conventions
+│   ├── .claude/ CLAUDE.md       frontend-specific conventions
 │   └── Dockerfile
 │
-├── docker-compose.yml        postgres + redis + backend + frontend
+├── .github/workflows/ci.yml  backend Jest (unit + e2e) against ephemeral Postgres/Redis service containers
+├── docker-compose.yml        postgres + redis + migrate + backend + frontend
 └── .gitignore
 ```
 
@@ -82,11 +86,12 @@ docker compose up -d postgres redis
 # 2. Backend
 cd backend
 cp .env.example .env
-# When using the Docker Postgres above, set in .env:
+# Point DATABASE_URL at the Docker Postgres above:
 # DATABASE_URL=postgresql://marketplace:marketplace@localhost:5433/marketplace?schema=public
 npm install
 npm run prisma:generate
-npm run start:dev          # http://localhost:3000/api — Swagger at /api/docs
+npm run prisma:migrate      # applies migrations in backend/prisma/migrations
+npm run start:dev           # http://localhost:3000/api — Swagger at /api/docs
 
 # 3. Frontend (separate terminal)
 cd frontend
@@ -104,27 +109,44 @@ docker compose up --build
 Backend: http://localhost:3000/api — Frontend: http://localhost:5173
 
 Compose ships with sensible defaults and does not require `backend/.env`.
+The `migrate` service runs `prisma migrate deploy` before `backend` starts.
 Postgres is published on port **5433** by default to avoid conflicts with a
 local PostgreSQL install on 5432. Override ports via `.env` (see `.env.example`).
 
-## Future Implementation Plan
+### Tests
 
-This bootstrap intentionally contains no business logic. Planned
-implementation order:
+```bash
+# Backend — unit + e2e (Jest)
+cd backend
+npm test           # unit
+npm run test:e2e   # e2e, needs Postgres + Redis reachable (see .env)
 
-1. **Database schema** — define Prisma models (User, Product, Category,
-   Cart, Order, ...) and initial migration.
-2. **Auth** — JWT access/refresh flow, guards, roles.
-3. **Users** — profile management.
-4. **Categories** — CRUD, admin-only mutations.
-5. **Products** — CRUD, listing/search/filtering, admin-only mutations.
-6. **Cart** — add/remove/update items, persisted per user.
-7. **Orders** — checkout flow, order status lifecycle, BullMQ jobs for
-   post-checkout processing.
-8. **Analytics** — basic marketplace/admin reporting.
-9. **Frontend UI** — implement pages/features/entities/widgets on top of
-   the corresponding backend features, in the same order.
+# Frontend — unit (Vitest)
+cd frontend
+npm test
+```
 
-Each step follows the conventions documented in
+CI (`.github/workflows/ci.yml`) runs the backend Jest suite against
+ephemeral Postgres/Redis service containers on every push/PR to `main`.
+
+## Implemented Features
+
+- **Auth** — register/login, JWT access tokens + httpOnly-cookie refresh
+  tokens with rotation, role-based guards (`RolesGuard`/`@Roles`).
+- **Users** — profile view/update, password change.
+- **Categories** — CRUD, admin-only mutations.
+- **Products** — CRUD, listing/search/filtering/pagination, soft
+  delete/restore, Redis-cached reads, admin-only mutations.
+- **Cart** — add/update/remove items, persisted per user, stock validation.
+- **Orders** — checkout, order status lifecycle + history, async
+  post-checkout processing via BullMQ (stock decrement, Resend receipt
+  email).
+- **Analytics** — admin dashboard reporting, CSV sales export.
+- **Frontend** — storefront (browse/search/cart/checkout/order history) and
+  an admin dashboard (products/categories/orders/analytics) built on the
+  above APIs, following the FSD layering in
+  [`frontend/CLAUDE.md`](frontend/CLAUDE.md).
+
+Conventions for extending either app are documented in
 [`backend/CLAUDE.md`](backend/CLAUDE.md) and
 [`frontend/CLAUDE.md`](frontend/CLAUDE.md).
