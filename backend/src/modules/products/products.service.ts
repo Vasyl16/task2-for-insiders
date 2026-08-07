@@ -137,8 +137,7 @@ export class ProductsService {
   }
 
   /**
-   * Products that have ever been ordered are archived (soft-deleted) instead
-   * of removed, so historical orders keep pointing at a real product row.
+   * Products are always soft-deleted so historical orders keep pointing at a real product row.
    * Archiving an already-archived product is idempotent — it just succeeds.
    */
   async delete(id: string): Promise<void> {
@@ -151,16 +150,25 @@ export class ProductsService {
       return;
     }
 
-    const hasBeenOrdered = await this.productsRepository.hasOrderItems(id);
-    if (hasBeenOrdered) {
-      await this.productsRepository.archive(id);
-    } else {
-      try {
-        await this.productsRepository.delete(id);
-      } catch (error) {
-        throw this.translateDeleteError(error);
-      }
+    await this.productsRepository.archive(id);
+
+    await Promise.all([
+      this.invalidateListCache(),
+      this.redisService.del(productDetailCacheKey(id)),
+    ]);
+  }
+
+  async restore(id: string): Promise<void> {
+    const product = await this.productsRepository.findById(id);
+    if (!product) {
+      throw new NotFoundException('Product not found');
     }
+
+    if (product.isActive) {
+      return;
+    }
+
+    await this.productsRepository.restore(id);
 
     await Promise.all([
       this.invalidateListCache(),

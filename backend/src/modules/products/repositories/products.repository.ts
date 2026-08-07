@@ -107,4 +107,11 @@ export class ProductsRepository {
       data: { isActive: false, deletedAt: new Date() },
     });
   }
+
+  restore(id: string): Promise<Product> {
+    return this.prisma.product.update({
+      where: { id },
+      data: { isActive: true, deletedAt: null },
+    });
+  }
 }

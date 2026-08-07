@@ -3,7 +3,10 @@ import { Test, type TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/modules/database';
+import { EmailService } from '../src/modules/email/email.service';
 import { MockPaymentGatewayService } from '../src/modules/orders/mock-payment-gateway.service';
+
+jest.setTimeout(120000);
 
 /**
  * End-to-end checkout flow: register -> add to cart -> checkout -> stock
@@ -65,6 +68,8 @@ describe('Checkout (e2e)', () => {
     })
       .overrideProvider(MockPaymentGatewayService)
       .useValue({ charge: async () => ({ success: true, transactionId: 'e2e-test-txn' }) })
+      .overrideProvider(EmailService)
+      .useValue({ sendPaymentReceipt: async () => undefined })
       .compile();
 
     app = moduleRef.createNestApplication();
@@ -82,7 +87,7 @@ describe('Checkout (e2e)', () => {
 
     await request(app.getHttpServer())
       .post('/auth/register')
-      .send({ email: adminEmail, password })
+      .send({ email: adminEmail, password, confirmPassword: password })
       .expect(201);
     await prisma.user.update({ where: { email: adminEmail }, data: { role: 'ADMIN' } });
 
@@ -94,7 +99,7 @@ describe('Checkout (e2e)', () => {
 
     const customerRegister = await request(app.getHttpServer())
       .post('/auth/register')
-      .send({ email: customerEmail, password })
+      .send({ email: customerEmail, password, confirmPassword: password })
       .expect(201);
     customerToken = (customerRegister.body as { accessToken: string }).accessToken;
 
@@ -140,7 +145,7 @@ describe('Checkout (e2e)', () => {
     const otherEmail = `checkout-e2e-empty-cart-${suffix}@example.com`;
     const register = await request(app.getHttpServer())
       .post('/auth/register')
-      .send({ email: otherEmail, password })
+      .send({ email: otherEmail, password, confirmPassword: password })
       .expect(201);
 
     await request(app.getHttpServer())
@@ -188,7 +193,7 @@ describe('Checkout (e2e)', () => {
     const strangerEmail = `checkout-e2e-stranger-${suffix}@example.com`;
     const register = await request(app.getHttpServer())
       .post('/auth/register')
-      .send({ email: strangerEmail, password })
+      .send({ email: strangerEmail, password, confirmPassword: password })
       .expect(201);
 
     await request(app.getHttpServer())

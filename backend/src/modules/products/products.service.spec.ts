@@ -42,6 +42,7 @@ describe('ProductsService caching', () => {
     delete: jest.Mock;
     hasOrderItems: jest.Mock;
     archive: jest.Mock;
+    restore: jest.Mock;
   };
   let redisService: {
     getJson: jest.Mock;
@@ -61,6 +62,7 @@ describe('ProductsService caching', () => {
       delete: jest.fn().mockResolvedValue(undefined),
       hasOrderItems: jest.fn().mockResolvedValue(false),
       archive: jest.fn().mockResolvedValue(undefined),
+      restore: jest.fn().mockResolvedValue(undefined),
     };
     redisService = {
       getJson: jest.fn().mockResolvedValue(null),
@@ -200,14 +202,16 @@ describe('ProductsService caching', () => {
       expect(repository.hasOrderItems).not.toHaveBeenCalled();
     });
 
-    it('hard-deletes a product that has never been ordered', async () => {
+    it('archives (soft-deletes) a product that has never been ordered', async () => {
       repository.findById.mockResolvedValue(buildProduct());
       repository.hasOrderItems.mockResolvedValue(false);
 
       await productsService.delete('prod-1');
 
-      expect(repository.delete).toHaveBeenCalledWith('prod-1');
-      expect(repository.archive).not.toHaveBeenCalled();
+      expect(repository.archive).toHaveBeenCalledWith('prod-1');
+      expect(repository.delete).not.toHaveBeenCalled();
+      expect(redisService.delByPattern).toHaveBeenCalledWith('products:list:*');
+      expect(redisService.del).toHaveBeenCalledWith(productDetailCacheKey('prod-1'));
     });
 
     it('archives (soft-deletes) a product that has been ordered', async () => {
@@ -230,6 +234,26 @@ describe('ProductsService caching', () => {
       expect(repository.hasOrderItems).not.toHaveBeenCalled();
       expect(repository.archive).not.toHaveBeenCalled();
       expect(repository.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('restore', () => {
+    it('restores an archived product', async () => {
+      repository.findById.mockResolvedValue(buildProduct({ isActive: false }));
+
+      await productsService.restore('prod-1');
+
+      expect(repository.restore).toHaveBeenCalledWith('prod-1');
+      expect(redisService.delByPattern).toHaveBeenCalledWith('products:list:*');
+      expect(redisService.del).toHaveBeenCalledWith(productDetailCacheKey('prod-1'));
+    });
+
+    it('does nothing for an already active product', async () => {
+      repository.findById.mockResolvedValue(buildProduct());
+
+      await productsService.restore('prod-1');
+
+      expect(repository.restore).not.toHaveBeenCalled();
     });
   });
 

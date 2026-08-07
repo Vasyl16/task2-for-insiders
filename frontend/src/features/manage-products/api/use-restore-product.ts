@@ -4,21 +4,21 @@ import { useToast } from '@/app/providers';
 import { productQueryKeys } from '@/entities/product';
 import { getErrorMessage } from '@/shared/utils';
 
-export function useDeleteProduct(): UseMutationResult<void, unknown, string> {
+export function useRestoreProduct(): UseMutationResult<void, unknown, string> {
   const queryClient = useQueryClient();
   const toast = useToast();
 
   return useMutation({
     mutationFn: async (productId: string) => {
-      await apiClient.delete(`/products/${productId}`);
+      await apiClient.patch(`/products/${productId}/restore`);
     },
     onSuccess: (_data, productId) => {
       queryClient.invalidateQueries({ queryKey: productQueryKeys.lists() });
       queryClient.invalidateQueries({ queryKey: productQueryKeys.detail(productId) });
-      toast.success('Product archived.');
+      toast.success('Product restored.');
     },
     onError: (error) => {
-      toast.error(getErrorMessage(error, "Couldn't archive product. Please try again."));
+      toast.error(getErrorMessage(error, "Couldn't restore product. Please try again."));
     },
   });
 }
